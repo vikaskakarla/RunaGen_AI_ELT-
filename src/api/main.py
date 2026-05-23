@@ -333,6 +333,7 @@ async def lifespan(app: FastAPI):
             print("✓ MongoDB storage client initialized")
         else:
             print("⚠ MongoDB storage client failed to connect")
+            mongodb_client = None
     except Exception as e:
         print(f"⚠ MongoDB client failed: {e}")
         mongodb_client = None
@@ -860,7 +861,7 @@ async def analyze_resume(request: ResumeAnalysisRequest):
                 }
                 
                 # Store in 'resumes' collection
-                mongodb_client.db["resumes"].insert_one(resume_record)
+                mongodb_client.get_collection("resumes").insert_one(resume_record)
                 print(f"💾 Full resume analysis record stored for guest {request.guest_id}")
         except Exception as store_error:
             print(f"⚠️ Failed to store comprehensive resume record: {store_error}")
@@ -1118,7 +1119,7 @@ async def generate_learning_path(request: dict):
                     "learning_path": learning_path,
                     "environment": os.getenv("ENVIRONMENT", "local")
                 }
-                mongodb_client.db["learning_paths"].insert_one(lp_record)
+                mongodb_client.get_collection("learning_paths").insert_one(lp_record)
                 print(f"💾 Learning path stored in MongoDB (Collection: learning_paths)")
         except Exception as store_error:
             print(f"⚠️ Failed to store learning path record: {store_error}")
@@ -1513,7 +1514,7 @@ async def optimize_resume(request: dict):
                     "optimization_results": optimization,
                     "environment": os.getenv("ENVIRONMENT", "local")
                 }
-                mongodb_client.db["optimizations"].insert_one(opt_record)
+                mongodb_client.get_collection("optimizations").insert_one(opt_record)
                 print(f"💾 Resume optimization stored in MongoDB (Collection: optimizations)")
         except Exception as store_error:
             print(f"⚠️ Failed to store optimization record: {store_error}")
@@ -2065,7 +2066,7 @@ async def get_user_history(guest_id: str):
             raise HTTPException(status_code=503, detail="Storage not available")
         
         # Get resume history
-        resumes = list(mongodb_client.db["resumes"].find(
+        resumes = list(mongodb_client.get_collection("resumes").find(
             {"guest_id": guest_id},
             {"full_response": 0, "resume_text_preview": 0, "_id": 1}
         ).sort("timestamp", -1))
@@ -2096,7 +2097,7 @@ async def get_history_record(record_id: str):
             raise HTTPException(status_code=503, detail="Storage not available")
         
         from bson import ObjectId
-        record = mongodb_client.db["resumes"].find_one({"_id": ObjectId(record_id)})
+        record = mongodb_client.get_collection("resumes").find_one({"_id": ObjectId(record_id)})
         
         if not record:
             raise HTTPException(status_code=404, detail="Record not found")
