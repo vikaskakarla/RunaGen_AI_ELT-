@@ -1,13 +1,13 @@
 {
   "version": 2,
   "functions": {
-    "vercel_api/index.py": {
+    "api/index.py": {
       "maxDuration": 60,
       "memory": 1024
     }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/vercel_api/index.py" },
+    { "source": "/api/(.*)", "destination": "/api/index.py" },
     { "source": "/live-dashboard.html", "destination": "/web/live-dashboard.html" },
     { "source": "/live-dashboard.css", "destination": "/web/live-dashboard.css" },
     { "source": "/live-dashboard.js", "destination": "/web/live-dashboard.js" },
