@@ -8,10 +8,13 @@
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/vercel_api/index.py" },
-    { "source": "/", "destination": "/web/index.html" },
-    { "source": "/(css|js|images)/(.*)", "destination": "/web/$1/$2" },
-    { "source": "/(.*\\.(html|js|css|png|jpg|ico|svg|json|map))", "destination": "/web/$1" },
-    { "source": "/(.*)", "destination": "/web/index.html" }
+    { "source": "/live-dashboard.html", "destination": "/web/live-dashboard.html" },
+    { "source": "/live-dashboard.css", "destination": "/web/live-dashboard.css" },
+    { "source": "/live-dashboard.js", "destination": "/web/live-dashboard.js" },
+    { "source": "/script.js", "destination": "/web/script.js" },
+    { "source": "/styles.css", "destination": "/web/styles.css" },
+    { "source": "/index.html", "destination": "/web/index.html" },
+    { "source": "/", "destination": "/web/index.html" }
   ],
   "crons": [
     {
