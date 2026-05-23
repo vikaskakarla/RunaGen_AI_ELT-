@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RunaGen AI — Live Pipeline Dashboard</title>
+    <meta name="description" content="Real-time data pipeline dashboard for RunaGen AI. Monitor job data ingestion, ELT processing, ML model training, and market insights.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="live-dashboard.css">
+</head>
+<body>
+    <div class="background-texture"></div>
+
+    <div class="container">
+        <!-- ═══ Header ═══ -->
+        <header class="dash-header">
+            <div class="dash-header-left">
+                <span class="logo-icon">🎯</span>
+                <div>
+                    <h1>Live Pipeline Dashboard</h1>
+                    <div class="subtitle">Real-time Data Pipeline &amp; Market Intelligence</div>
+                </div>
+            </div>
+            <a href="/" class="back-link">← Back to Resume Analyzer</a>
+        </header>
+
+        <!-- ═══ Pipeline Status Banner ═══ -->
+        <div class="pipeline-banner" id="pipelineBanner">
+            <div class="pipeline-top-row">
+                <div class="pipeline-title">
+                    <span class="status-dot idle" id="statusDot"></span>
+                    <span>Pipeline Status: <strong id="pipelineStateLabel">Checking...</strong></span>
+                </div>
+            </div>
+            <div class="pipeline-message" id="pipelineMessage">Connecting to server...</div>
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="progressFill" style="width: 0%"></div>
+            </div>
+            <div class="pipeline-stages">
+                <div class="stage-item" id="stage-data_fetch">📡 Data Fetch</div>
+                <div class="stage-item" id="stage-etl">🔄 ELT Pipeline</div>
+                <div class="stage-item" id="stage-model_training">🤖 ML Training</div>
+            </div>
+        </div>
+
+        <!-- ═══ Auto-Refresh Bar ═══ -->
+        <div class="refresh-bar">
+            <div class="refresh-indicator">
+                <div class="refresh-spinner" id="refreshSpinner"></div>
+                <span id="lastRefresh">Loading...</span>
+            </div>
+            <button class="refresh-btn" id="refreshBtn">🔄 Refresh Now</button>
+        </div>
+
+        <!-- ═══ Stats Grid ═══ -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div class="stat-value amber" id="statTotalJobs">—</div>
+                <div class="stat-label">Total Jobs Ingested</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">✅</div>
+                <div class="stat-value green" id="statActiveJobs">—</div>
+                <div class="stat-label">Active Jobs</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🆕</div>
+                <div class="stat-value blue" id="statRecent24h">—</div>
+                <div class="stat-label">New Jobs (24h)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🛠️</div>
+                <div class="stat-value purple" id="statTotalSkills">—</div>
+                <div class="stat-label">Skills Tracked</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🔥</div>
+                <div class="stat-value amber" id="statTrendingSkills">—</div>
+                <div class="stat-label">Trending Skills</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">⏱️</div>
+                <div class="stat-value" id="statFreshness">—</div>
+                <div class="stat-label">Data Freshness</div>
+            </div>
+        </div>
+
+        <!-- ═══ Two-Column Content ═══ -->
+        <div class="content-grid">
+            <!-- Trending Skills -->
+            <div class="content-card">
+                <h3>🔥 Trending Skills</h3>
+                <div class="skills-list" id="trendingSkillsList">
+                    <div class="loading-placeholder">
+                        <div class="spinner"></div>
+                        Loading skills data...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Jobs -->
+            <div class="content-card">
+                <h3>💼 Recent Jobs (72h)</h3>
+                <div id="recentJobsList">
+                    <div class="loading-placeholder">
+                        <div class="spinner"></div>
+                        Loading recent jobs...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ Health & Market Insights ═══ -->
+        <div class="content-grid">
+            <!-- Pipeline Health -->
+            <div class="content-card">
+                <h3>🩺 Pipeline Health</h3>
+                <div class="health-grid" id="healthGrid">
+                    <div class="loading-placeholder">
+                        <div class="spinner"></div>
+                        Checking health...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Salary Insights -->
+            <div class="content-card">
+                <h3>💰 Salary Insights</h3>
+                <div class="insights-grid" id="salaryInsights">
+                    <div class="loading-placeholder">
+                        <div class="spinner"></div>
+                        Loading salary data...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ Market Insights (Full Width) ═══ -->
+        <div class="full-width-card">
+            <h3>📍 Top Hiring Locations</h3>
+            <div class="insights-grid" id="topLocations">
+                <div class="loading-placeholder">Loading...</div>
+            </div>
+        </div>
+
+        <div class="full-width-card">
+            <h3>🏢 Top Hiring Companies</h3>
+            <div class="insights-grid" id="topCompanies">
+                <div class="loading-placeholder">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="live-dashboard.js"></script>
+</body>
+</html>

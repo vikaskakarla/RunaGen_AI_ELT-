@@ -264,7 +264,8 @@ class LinkedInVerifier:
     def get_verification_summary(
         self, 
         resume_text: str, 
-        resume_certs: List[Dict]
+        resume_certs: List[Dict],
+        pre_extracted_social_links: Optional[Dict[str, Optional[str]]] = None
     ) -> Dict:
         """
         Complete verification workflow
@@ -272,15 +273,24 @@ class LinkedInVerifier:
         Args:
             resume_text: Full resume text
             resume_certs: Certifications extracted from resume
+            pre_extracted_social_links: Optional dict with already extracted links (e.g. from PDF hyperlinks)
         
         Returns:
             Dict with verified_certs, social_links, recommendations, notes
         """
         logger.info("🔍 Starting LinkedIn verification workflow...")
         
-        # Extract social links
+        # Extract social links from text
         social_links = self.extract_social_links(resume_text)
-        logger.info(f"📊 Social links found: {social_links}")
+        
+        # Merge with pre-extracted links (which are more reliable as they come from hyperlinks)
+        if pre_extracted_social_links:
+            for key, value in pre_extracted_social_links.items():
+                if value and not social_links.get(key):
+                    social_links[key] = value
+                    logger.info(f"✅ Using pre-extracted {key}: {value}")
+        
+        logger.info(f"📊 Final social links: {social_links}")
         
         # Try to scrape LinkedIn if available
         linkedin_certs = []

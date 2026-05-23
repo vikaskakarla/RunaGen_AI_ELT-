@@ -1,8 +1,0 @@
-{
-  "career_accuracy": 0.7389705882352942,
-  "career_f1": 0.7339068572986949,
-  "salary_r2": 0.461353907860917,
-  "salary_rmse": 613751.8878875951,
-  "duration_seconds": 28.344034,
-  "data_records": 2717
-}

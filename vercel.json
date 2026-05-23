@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "functions": {
+    "vercel_api/index.py": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/vercel_api/index.py" },
+    { "source": "/", "destination": "/web/index.html" },
+    { "source": "/(css|js|images)/(.*)", "destination": "/web/$1/$2" },
+    { "source": "/(.*\\.(html|js|css|png|jpg|ico|svg|json|map))", "destination": "/web/$1" },
+    { "source": "/(.*)", "destination": "/web/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/live/cron/run-pipeline",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}

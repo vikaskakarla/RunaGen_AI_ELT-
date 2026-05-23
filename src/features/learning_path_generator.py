@@ -157,7 +157,7 @@ class LearningPathGenerator:
             logger.warning(f"⚠️ Ollama not available: {e}")
         return False
     
-    def _call_ollama(self, prompt: str, max_tokens: int = 500) -> str:
+    def _call_ollama(self, prompt: str, max_tokens: int = 2000) -> str:
         """Call Ollama API for text generation"""
         if not self.use_ollama:
             return ""
@@ -174,7 +174,7 @@ class LearningPathGenerator:
                         "temperature": 0.7
                     }
                 },
-                timeout=60
+                timeout=120
             )
             
             if response.status_code == 200:
@@ -186,8 +186,8 @@ class LearningPathGenerator:
         return ""
     
     def generate_learning_path(self, career: str, current_skills: List[str], 
-                              target_level: SkillLevel = SkillLevel.ADVANCED,
-                              weeks_available: int = 12) -> Dict:
+                               target_level: SkillLevel = SkillLevel.ADVANCED,
+                               weeks_available: int = 12) -> Dict:
         """Generate personalized learning path"""
         
         logger.info(f"\n📚 Generating learning path for {career}")
@@ -252,7 +252,7 @@ class LearningPathGenerator:
         all_missing_skills = missing_core + missing_important + missing_nice
         ai_resources = {}
         if all_missing_skills and self.use_ollama:
-            logger.info(f"🤖 Generating AI-powered learning resources for {len(all_missing_skills)} skills...")
+            # Note: _generate_ai_learning_resources now handles its own internal logging and batching
             ai_resources = self._generate_ai_learning_resources(
                 career, 
                 all_missing_skills, 
@@ -261,7 +261,7 @@ class LearningPathGenerator:
             )
             if ai_resources:
                 learning_path['ai_learning_resources'] = ai_resources
-                logger.info(f"✓ Generated AI resources for {len(ai_resources)} skills")
+                logger.info(f"✓ Finalized AI resources for {len(ai_resources)} skills")
 
         # Phase 1: Core skills (highest priority)
         if missing_core:
@@ -310,8 +310,6 @@ class LearningPathGenerator:
             learning_path['total_hours_required']
         )
         
-        # AI resources are now integrated into phases
-        
         logger.info(f"✓ Learning path generated")
         logger.info(f"   Total hours required: {learning_path['total_hours_required']}")
         logger.info(f"   Estimated weeks: {learning_path['estimated_weeks']:.1f}")
@@ -330,6 +328,23 @@ class LearningPathGenerator:
             'total_cost': 0
         }
         
+        # Calculate appropriate hours based on skill level and priority
+        def get_skill_hours(level: SkillLevel, priority: int) -> int:
+            """Calculate hours based on skill level and phase priority"""
+            base_hours = {
+                SkillLevel.BEGINNER: 30,
+                SkillLevel.INTERMEDIATE: 40,
+                SkillLevel.ADVANCED: 50,
+                SkillLevel.EXPERT: 60
+            }
+            hours = base_hours.get(level, 40)
+            
+            # Core skills get more time
+            if priority == 1:
+                hours = int(hours * 1.3)
+            
+            return hours
+        
         for skill in skills:
             skill_entry = None
             
@@ -343,17 +358,20 @@ class LearningPathGenerator:
                 if cost_match:
                     cost = int(cost_match.group(1))
                 
+                # Calculate proper hours based on level
+                duration_hours = get_skill_hours(target_level, priority)
+                
                 skill_entry = {
                     'skill': skill,
                     'resources': [{
                         'name': res.get('resources', 'Recommended Resource'),
                         'platform': 'AI Recommended',
-                        'duration_hours': 20, # Default estimate
+                        'duration_hours': duration_hours,
                         'difficulty': target_level.name,
                         'cost': cost,
                         'link': '#'
                     }],
-                    'hours': 20,
+                    'hours': duration_hours,
                     'cost': cost,
                     'strategy': res.get('strategy', '')
                 }
@@ -377,6 +395,22 @@ class LearningPathGenerator:
                         'hours': selected_resource.duration_hours,
                         'cost': selected_resource.cost
                     }
+                else:
+                    # If no hardcoded resource exists, create a generic one with proper hours
+                    duration_hours = get_skill_hours(target_level, priority)
+                    skill_entry = {
+                        'skill': skill,
+                        'resources': [{
+                            'name': f'Learn {skill}',
+                            'platform': 'Online Platforms',
+                            'duration_hours': duration_hours,
+                            'difficulty': target_level.name,
+                            'cost': 0,
+                            'link': '#'
+                        }],
+                        'hours': duration_hours,
+                        'cost': 0
+                    }
             
             if skill_entry:
                 phase['skills'].append(skill_entry)
@@ -391,22 +425,28 @@ class LearningPathGenerator:
         
         recommendations = []
         
+        hours_per_week = total_hours / estimated_weeks if estimated_weeks > 0 else 20
+        
         if estimated_weeks <= weeks_available:
             recommendations.append(f"✓ You can complete this path in {estimated_weeks:.1f} weeks")
+            recommendations.append(f"Dedicate approximately {hours_per_week:.0f} hours per week to stay on track")
             recommendations.append("Consider adding advanced topics to accelerate your career growth")
         else:
-            recommendations.append(f"⚠️  This path requires {estimated_weeks:.1f} weeks (you have {weeks_available})")
+            recommendations.append(f"⚠️ This path requires {estimated_weeks:.1f} weeks (you have {weeks_available})")
+            recommendations.append(f"You'll need to dedicate {hours_per_week:.0f} hours per week")
             recommendations.append("Consider focusing on core skills first, then advanced topics later")
+            recommendations.append("Or extend your timeline to reduce weekly time commitment")
         
-        if total_hours > 200:
-            recommendations.append("This is an intensive program. Dedicate 20+ hours per week")
-        elif total_hours > 100:
-            recommendations.append("This is a moderate program. Dedicate 10-15 hours per week")
+        if total_hours > 300:
+            recommendations.append("This is an intensive program requiring significant time investment")
+        elif total_hours > 150:
+            recommendations.append("This is a comprehensive program covering multiple skills in depth")
         else:
-            recommendations.append("This is a light program. Dedicate 5-10 hours per week")
+            recommendations.append("This is a focused program targeting key skill gaps")
         
-        recommendations.append("Join online communities and practice with real projects")
-        recommendations.append("Consider getting certifications to validate your skills")
+        recommendations.append("Practice with real projects alongside learning to reinforce concepts")
+        recommendations.append("Join online communities (Reddit, Discord, LinkedIn groups) for support")
+        recommendations.append("Consider getting certifications to validate your skills to employers")
         
         return recommendations
     
@@ -439,68 +479,78 @@ Limit to most important industry-standard technical skills. No explanation, just
     
     def _generate_ai_learning_resources(self, career: str, missing_skills: List[str], 
                                        target_level: SkillLevel, current_skills: List[str] = None) -> Dict:
-        """Generate AI-powered learning resources for skill gaps using Ollama"""
+        """Generate AI-powered learning resources for skill gaps using Ollama with batching"""
         if not self.use_ollama or not missing_skills:
             return {}
         
-        logger.info(f"🤖 Generating AI-powered learning resources for {len(missing_skills)} skills...")
+        resource_map = {}
+        # Process skills in batches of 3 to prevent timeouts
+        batch_size = 3
         
-        # Create prompt for Ollama
-        current_skills_str = ", ".join(current_skills) if current_skills else "None identified"
-        
-        prompt = f"""You are an expert career coach and learning advisor.
- 
+        for i in range(0, len(missing_skills), batch_size):
+            batch = missing_skills[i:i+batch_size]
+            logger.info(f"🤖 Generating AI resources for batch: {batch} ({i//batch_size + 1}/{(len(missing_skills)-1)//batch_size + 1})")
+            
+            current_skills_str = ", ".join(current_skills) if current_skills else "None identified"
+            
+            prompt = f"""You are an expert career coach.
 Career Goal: {career}
 Target Level: {target_level.name}
 User's Current Skills: {current_skills_str}
-Missing Skills to Learn: {', '.join(missing_skills)}
- 
-Task: For each missing skill, recommend specific learning resources and a learning strategy that builds upon the user's current knowledge.
- 
-For each skill, provide:
-SKILL: [skill name]
-RESOURCES: [2-3 specific real-world courses, books, or platforms. Include estimated cost in Indian Rupees (₹) if applicable]
-STRATEGY: [How to learn this skill effectively, considering their background in {current_skills_str}. Be technical and specific.]
-TIMELINE: [Estimated weeks to learn]
- 
-IMPORTANT: Use Indian Rupees (₹) for all currency mentions. Provide ACTUAL high-quality resources like Udemy, Coursera, official documentation, or top YouTube channels. No mock data. Be very specific to {career}."""
+Batch of Skills to Learn: {', '.join(batch)}
 
-        try:
-            response = self._call_ollama(prompt, max_tokens=1000)
-            
-            if not response:
-                return {}
-            
-            # Parse Ollama response into a skill-to-resource mapping
-            resource_map = {}
-            
-            # Split by skill blocks
-            skill_blocks = response.split('SKILL:')[1:]  # Skip first empty split
-            
-            for block in skill_blocks:
-                try:
-                    skill_name = block.split('\n')[0].strip()
-                    
-                    resources_match = re.search(r'RESOURCES:\s*(.+?)(?=STRATEGY:|$)', block, re.DOTALL | re.IGNORECASE)
-                    strategy_match = re.search(r'STRATEGY:\s*(.+?)(?=TIMELINE:|$)', block, re.DOTALL | re.IGNORECASE)
-                    
-                    normalized_name = normalize_skill(skill_name)
-                    resource_map[normalized_name] = {
-                        'skill_original': skill_name,
-                        'resources': resources_match.group(1).strip()[:500] if resources_match else 'Check online platforms',
-                        'strategy': strategy_match.group(1).strip()[:300] if strategy_match else 'Practice with projects'
-                    }
-                    
-                except Exception as parse_error:
-                    logger.warning(f"⚠️ Failed to parse skill resource: {parse_error}")
+For EACH skill in the batch, provide:
+SKILL: [skill name]
+RESOURCES: [2-3 specific real-world courses or platforms. Use Indian Rupees (₹). Example: "Udemy - Complete Java (₹499)", "Official Docs"]
+STRATEGY: [Technical learning strategy in 2 sentences. Build on their background in {current_skills_str}.]
+
+Limit output to ONLY these fields. No preamble."""
+
+            try:
+                # Reduced max_tokens per batch since it's only 3 skills
+                response = self._call_ollama(prompt, max_tokens=1000)
+                
+                if not response:
                     continue
+                
+                # Split by skill blocks
+                skill_blocks = re.split(r'(?i)(?:###\s*)?SKILL:', response)
+                if len(skill_blocks) > 1:
+                    skill_blocks = skill_blocks[1:]
+                
+                for block in skill_blocks:
+                    try:
+                        lines = block.strip().split('\n')
+                        if not lines: continue
+                        
+                        skill_name = lines[0].strip().rstrip(':').strip()
+                        if not skill_name: continue
+                        
+                        res_match = re.search(r'(?i)RESOURCES:\s*(.+?)(?=(?i)STRATEGY:|$)', block, re.DOTALL)
+                        strat_match = re.search(r'(?i)STRATEGY:\s*(.+?)(?=(?i)TIMELINE:|$)', block, re.DOTALL)
+                        
+                        norm = normalize_skill(skill_name)
+                        resource_map[norm] = {
+                            'skill_original': skill_name,
+                            'resources': res_match.group(1).strip()[:500] if res_match else 'Check top platforms',
+                            'strategy': strat_match.group(1).strip()[:400] if strat_match else 'Focus on projects'
+                        }
+                    except Exception: continue
                     
-            return resource_map
-            
-        except Exception as e:
-            logger.error(f"❌ Error generating AI learning resources: {e}")
+            except Exception as e:
+                logger.error(f"❌ Error in batch {i//batch_size + 1}: {e}")
         
-        return {}
+        # Add defaults for any that failed
+        for skill in missing_skills:
+            norm = normalize_skill(skill)
+            if norm not in resource_map:
+                resource_map[norm] = {
+                    'skill_original': skill,
+                    'resources': f'Top-rated courses on Udemy, Coursera, and YouTube for {skill}',
+                    'strategy': f'Start with the fundamentals of {skill} and build small projects to reinforce learning.'
+                }
+                
+        return resource_map
     
     def get_free_resources(self, skill: str) -> List[Dict]:
         """Get free learning resources for a skill"""
@@ -532,22 +582,9 @@ def main():
         weeks_available=12
     )
     
-    print("\n" + "="*70)
-    print("📚 Learning Path Generated")
-    print("="*70)
     print(f"Career: {path['career']}")
     print(f"Total Hours Required: {path['total_hours_required']}")
     print(f"Estimated Weeks: {path['estimated_weeks']:.1f}")
-    print(f"\nPhases:")
-    for phase in path['phases']:
-        print(f"\n{phase['name']}")
-        for skill in phase['skills']:
-            print(f"  - {skill['skill']}: {skill['hours']} hours")
-    
-    print(f"\nRecommendations:")
-    for rec in path['recommendations']:
-        print(f"  • {rec}")
-    print("="*70 + "\n")
 
 
 if __name__ == "__main__":

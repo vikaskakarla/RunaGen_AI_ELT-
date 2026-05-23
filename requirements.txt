@@ -1,87 +1,39 @@
+# Core API
+fastapi>=0.103.1
+uvicorn>=0.23.2
+pydantic>=2.3.0,<3.0.0
+python-multipart>=0.0.6
+
 # Core Data Processing
 pandas>=2.1.0
 numpy>=1.24.3
 python-dotenv>=1.0.0
 
-# MongoDB (No SQL databases)
+# MongoDB
 pymongo>=4.5.0
 
-# BigQuery & Data Warehouse
+# BigQuery
 google-cloud-bigquery>=3.11.4
-google-cloud-bigquery-storage>=2.22.0
 google-auth>=2.23.0
 pyarrow>=13.0.0
-pandas-gbq>=0.26.1
-google-cloud-storage>=2.10.0
 
-# dbt (Data Build Tool)
-dbt-core>=1.8.0
-dbt-bigquery>=1.8.0
-
-# Scheduling & Automation
-schedule>=1.2.0
-apscheduler>=3.10.4
-
-# ML & NLP
+# ML & NLP (Essential)
 scikit-learn>=1.3.0
-xgboost>=2.0.0
-lightgbm>=4.1.0
-catboost>=1.2.2
-optuna>=3.3.0
-spacy>=3.6.1
-transformers>=4.33.0
-torch>=2.0.1
-gensim>=4.3.2
-nltk>=3.8.1
-sentence-transformers>=2.2.2
 
-# LLM Integration
-openai>=0.28.0
-langchain>=0.0.300
-
-# API Development
-fastapi>=0.103.1
-uvicorn>=0.23.2
-pydantic>=2.3.0,<3.0.0
+# Job Scraping
+requests>=2.31.0
+beautifulsoup4>=4.12.2
+lxml>=4.9.3
 
 # Resume Parsing
 PyPDF2>=3.0.1
 python-docx>=0.8.11
-pdfplumber>=0.10.2
-
-# Data Visualization
-plotly>=5.17.0
-streamlit>=1.27.0
-
-# Job Market APIs
-requests>=2.31.0
-beautifulsoup4>=4.12.2
-lxml>=4.9.3
-python-multipart>=0.0.6
-selenium>=4.15.0
-webdriver-manager>=4.0.1
-
-# Feature Engineering
-category-encoders>=2.6.2
-imbalanced-learn>=0.11.0
-nlpaug>=1.1.11
-
-# Model Interpretability
-shap>=0.43.0
-lime>=0.2.0.1
-
-# Time Series Forecasting
-prophet>=1.1.5
 
 # Model Persistence
 joblib>=1.3.2
 
-# Testing
-pytest>=7.4.2
-pytest-cov>=4.1.0
-
-# Workflow Orchestration
-apache-airflow>=2.7.1
-
-# Logging & Monitoring
+# Logging
 loguru>=0.7.2
+
+# Scheduling
+apscheduler>=3.10.4

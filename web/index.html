@@ -42,6 +42,10 @@
                         <span class="btn-icon">🕒</span>
                         <span>History</span>
                     </button>
+                    <a href="/live-dashboard.html" class="history-toggle-btn" style="text-decoration:none;">
+                        <span class="btn-icon">📡</span>
+                        <span>Live Dashboard</span>
+                    </a>
                 </div>
             </div>
         </header>
@@ -114,6 +118,9 @@
                 <div class="trend-buttons">
                     <button class="feature-btn" id="trendingSkillsBtn">Trending Skills</button>
                     <button class="feature-btn" id="emergingSkillsBtn">Emerging Skills</button>
+                </div>
+                <div class="chart-container-trend" id="trendChartContainer" style="display: none; margin-bottom: 30px; background: rgba(255,255,255,0.02); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                    <canvas id="trendChart"></canvas>
                 </div>
                 <div id="trendResults" class="results-grid"></div>
             </div>

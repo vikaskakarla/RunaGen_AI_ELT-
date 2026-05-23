@@ -76,7 +76,7 @@ class ResumeOptimizer:
                         "temperature": 0.7
                     }
                 },
-                timeout=60
+                timeout=120
             )
             
             if response.status_code == 200:
@@ -690,48 +690,69 @@ Return ONLY the JSON. Do not include any other conversational text."""
             if not response:
                 return []
             
-            # 1. Try to extract from JSON code blocks
+            # 1. Clean response (remove markdown and preamble)
+            cleaned_response = response.strip()
+            
+            # 2. Try to extract JSON array using multiple patterns
             json_content = ""
-            code_block_match = re.search(r'```json\s*(.*?)```', response, re.DOTALL)
-            if code_block_match:
-                json_content = code_block_match.group(1).strip()
-            else:
-                # 2. Try to find anything that looks like a JSON array
-                array_match = re.search(r'\[\s*\{.*\}\s*\]', response, re.DOTALL)
-                if array_match:
-                    json_content = array_match.group(0).strip()
+            patterns = [
+                r'```json\s*(\[.*?\])\s*```',      # JSON code block with array
+                r'```\s*(\[.*?\])\s*```',          # Any code block with array
+                r'(\[.*?\])',                      # Just the array
+            ]
             
-            if json_content:
-                try:
-                    ai_suggestions = json.loads(json_content)
-                    if isinstance(ai_suggestions, list):
-                        for s in ai_suggestions:
-                            s['ai_generated'] = True
-                        return ai_suggestions
-                except json.JSONDecodeError:
-                    logger.warning("⚠️ AI Suggestion JSON decode failed")
+            for pattern in patterns:
+                match = re.search(pattern, cleaned_response, re.DOTALL)
+                if match:
+                    json_content = match.group(1 if '```' in pattern else 0).strip()
+                    try:
+                        ai_suggestions = json.loads(json_content)
+                        if isinstance(ai_suggestions, list):
+                            for s in ai_suggestions:
+                                s['ai_generated'] = True
+                            return ai_suggestions
+                    except json.JSONDecodeError:
+                        continue
             
-            # 3. Fallback to flexible manual parsing
-            logger.warning("⚠️ AI Suggestion parsing failed, using flexible legacy parser")
+            # 3. Fallback to flexible manual parsing if JSON fails
+            logger.warning("⚠️ AI Suggestion parsing failed, using flexible manual parser")
             ai_suggestions = []
-            # Split by common markers
-            suggestion_blocks = re.split(r'(?i)suggestion \d+:|priority:', response)
             
-            for block in suggestion_blocks[1:]:  # Skip first split
-                action = re.search(r'(?i)action:\s*(.+)', block)
-                details = re.search(r'(?i)details:\s*(.+)', block)
-                if action:
+            # Look for suggestion blocks (Suggestion 1:, 1., etc)
+            blocks = re.split(r'(?i)suggestion\s*\d+:|###|##|\n\d+\.', cleaned_response)
+            for block in blocks:
+                if len(block.strip()) < 20: continue
+                
+                # Try to extract action and details
+                action_match = re.search(r'(?i)action:\s*(.+)', block)
+                details_match = re.search(r'(?i)details:\s*(.+)', block)
+                
+                if action_match:
                     ai_suggestions.append({
                         'priority': 'HIGH',
                         'category': 'AI Suggestion',
-                        'action': action.group(1).strip(),
-                        'details': details.group(1).strip() if details else '',
+                        'action': action_match.group(1).strip(),
+                        'details': details_match.group(1).strip() if details_match else block.strip()[:200],
                         'impact': 'Significantly improves resume quality',
                         'how_to_fix': ['Follow AI recommendation'],
                         'ai_generated': True
                     })
             
-            return ai_suggestions[:4] # Return top 4 max
+            if not ai_suggestions:
+                # Last resort: just split by double newline
+                for para in cleaned_response.split('\n\n'):
+                    if len(para.strip()) > 50:
+                        ai_suggestions.append({
+                            'priority': 'MEDIUM',
+                            'category': 'AI Review',
+                            'action': 'Optimize Content',
+                            'details': para.strip()[:300],
+                            'impact': 'Improves professional tone',
+                            'how_to_fix': ['Review AI comments'],
+                            'ai_generated': True
+                        })
+            
+            return ai_suggestions[:4]
             
         except Exception as e:
             logger.error(f"❌ Error generating AI suggestions: {e}")

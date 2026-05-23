@@ -21,6 +21,6 @@ ENV PYTHONPATH=/app/src
 ENV PORT=8080
 
 # Run the application
-CMD ["python", "-m", "uvicorn", "src.api.main_v2_90pct:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "-m", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8080"]
 
 

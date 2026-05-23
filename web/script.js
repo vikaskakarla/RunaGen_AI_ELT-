@@ -338,49 +338,49 @@ function createCertificationsCard(data) {
     
     // Social links section
     const socialLinksHTML = data.social_links ? `
-        <div style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 3px solid var(--accent-blue);">
-            <div style="font-weight: 600; margin-bottom: 10px; color: var(--text-primary);">🔗 Professional Profiles</div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+        <div class="social-verification-panel">
+            <div class="panel-header">🔗 Digital Identity Verification</div>
+            <div class="social-links-row">
                 ${data.social_links.linkedin ? `
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="color: #0077b5;">💼</span>
-                        <a href="${data.social_links.linkedin}" target="_blank" style="color: var(--accent-blue); text-decoration: none;">LinkedIn Profile</a>
-                        <span style="color: var(--accent-green); font-size: 0.8em;">✓ Found</span>
+                    <div class="social-item found">
+                        <span class="platform-icon">💼</span>
+                        <a href="${data.social_links.linkedin}" target="_blank" class="platform-link">LinkedIn Profile</a>
+                        <span class="status-indicator">Verified</span>
                     </div>
                 ` : `
-                    <div style="display: flex; align-items: center; gap: 8px; opacity: 0.5;">
-                        <span>💼</span>
-                        <span style="color: var(--text-secondary);">LinkedIn Not Found</span>
+                    <div class="social-item missing">
+                        <span class="platform-icon">💼</span>
+                        <span class="platform-link">LinkedIn</span>
+                        <span class="status-indicator">Not Found</span>
                     </div>
                 `}
                 ${data.social_links.github ? `
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span>💻</span>
-                        <a href="${data.social_links.github}" target="_blank" style="color: var(--accent-blue); text-decoration: none;">GitHub Profile</a>
-                        <span style="color: var(--accent-green); font-size: 0.8em;">✓ Found</span>
+                    <div class="social-item found">
+                        <span class="platform-icon">💻</span>
+                        <a href="${data.social_links.github}" target="_blank" class="platform-link">GitHub Profile</a>
+                        <span class="status-indicator">Verified</span>
                     </div>
                 ` : `
-                    <div style="display: flex; align-items: center; gap: 8px; opacity: 0.5;">
-                        <span>💻</span>
-                        <span style="color: var(--text-secondary);">GitHub Not Found</span>
+                    <div class="social-item missing">
+                        <span class="platform-icon">💻</span>
+                        <span class="platform-link">GitHub</span>
+                        <span class="status-indicator">Not Found</span>
                     </div>
                 `}
                 ${data.social_links.portfolio ? `
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span>🌐</span>
-                        <a href="${data.social_links.portfolio}" target="_blank" style="color: var(--accent-blue); text-decoration: none;">Portfolio</a>
-                        <span style="color: var(--accent-green); font-size: 0.8em;">✓ Found</span>
+                    <div class="social-item found">
+                        <span class="platform-icon">🌐</span>
+                        <a href="${data.social_links.portfolio}" target="_blank" class="platform-link">Portfolio</a>
+                        <span class="status-indicator">Active</span>
                     </div>
-                ` : `
-                    <div style="display: flex; align-items: center; gap: 8px; opacity: 0.5;">
-                        <span>🌐</span>
-                        <span style="color: var(--text-secondary);">Portfolio Not Found</span>
-                    </div>
-                `}
+                ` : ''}
             </div>
             ${data.linkedin_verified_count > 0 ? `
-                <div style="margin-top: 10px; padding: 10px; background: rgba(16, 185, 129, 0.1); border-radius: 6px;">
-                    <span style="color: var(--accent-green); font-weight: 600;">✅ ${data.linkedin_verified_count} certification(s) verified via LinkedIn</span>
+                <div class="verification-badge-container">
+                    <div class="verification-pill">
+                        <span class="pill-icon">✅</span>
+                        <span>${data.linkedin_verified_count} Credentials Verified via LinkedIn</span>
+                    </div>
                 </div>
             ` : ''}
         </div>
@@ -393,22 +393,22 @@ function createCertificationsCard(data) {
         const verificationSource = cert.verification_source || 'Resume Only';
         
         return `
-            <div class="cert-item">
+            <div class="cert-item ${linkedinVerified ? 'is-verified' : ''}">
                 <div class="cert-main">
                     <div class="cert-info">
                         <div class="cert-name">
                             ${cert.name}
-                            ${linkedinVerified ? '<span style="color: var(--accent-green); margin-left: 8px; font-size: 0.9em;">✓ LinkedIn</span>' : ''}
+                            ${linkedinVerified ? '<span class="verified-tag">VERIFIED</span>' : ''}
                         </div>
                         <div class="cert-issuer">${cert.issuer} ${cert.year ? `(${cert.year})` : ''}</div>
-                        <div class="cert-id">
-                            ${cert.verification_id ? `ID: ${cert.verification_id}` : 'No ID Provided'}
-                            <span style="color: var(--text-muted); margin-left: 10px; font-size: 0.85em;">• ${verificationSource}</span>
+                        <div class="cert-id-row">
+                            <span class="cert-id">${cert.verification_id ? `ID: ${cert.verification_id}` : 'Direct Link Found'}</span>
+                            <span class="cert-source">• ${verificationSource}</span>
                         </div>
                     </div>
                     <div class="cert-status-container">
                         <div class="cert-status ${statusClass}">${cert.status}</div>
-                        <div class="cert-score">Reliability: ${scorePct}%</div>
+                        <div class="cert-reliability">Reliability: ${scorePct}%</div>
                     </div>
                 </div>
             </div>
@@ -419,9 +419,9 @@ function createCertificationsCard(data) {
         <div class="result-card">
             <div class="card-title">
                 <span class="card-icon">📜</span>
-                <h2>Verified Certifications</h2>
+                <h2>Professional Credentials</h2>
             </div>
-            <p class="card-subtitle">AI-validated professional credentials with LinkedIn cross-verification</p>
+            <p class="card-subtitle">AI-validated professional certifications with real-time profile cross-verification</p>
             ${socialLinksHTML}
             <div class="certs-container">
                 ${certsHTML}
@@ -999,7 +999,10 @@ async function generateLearningPath() {
 }
 
 // ===== PHASE 5: SKILL TRENDS =====
+let trendChart = null;
+
 async function getTrendingSkills() {
+    console.log('📊 Fetching trending skills...');
     const role = document.getElementById('targetRole').value;
     const url = role ? 
         `${API_BASE_URL}/api/skill-trends/trending?days=30&limit=10&role=${encodeURIComponent(role)}` : 
@@ -1007,27 +1010,39 @@ async function getTrendingSkills() {
         
     try {
         const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         
+        console.log('✅ Trending data received:', data);
+        
         if (data.trending_skills) {
+            // Render Skill Cards
             const skillsHTML = data.trending_skills.map(skill => `
-                <div class="trend-card" style="border-left: 4px solid var(--primary);">
-                    <h4 style="color: var(--primary); margin-bottom: 8px;">${skill.skill_name}</h4>
-                    <div style="font-size: 0.9em; color: var(--text-secondary); margin-bottom: 5px;">🔥 Trending in ${role || 'Market'}</div>
+                <div class="trend-card" style="border-left: 4px solid var(--primary); padding: 15px; background: rgba(255,255,255,0.02); border-radius: 8px;">
+                    <h4 style="color: var(--primary); margin: 0 0 8px 0; font-size: 1.1em;">${skill.skill_name}</h4>
+                    <div style="font-size: 0.85em; color: var(--text-secondary); margin-bottom: 5px;">🔥 Trending in ${data.role || 'Market'}</div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-                        <span style="font-weight: 600; color: var(--accent-green);">${skill.demand_percentage}% Share</span>
+                        <span style="font-weight: 600; color: var(--accent-green); font-size: 0.9em;">${skill.demand_percentage}% Share</span>
                         <span style="font-size: 0.8em; opacity: 0.7;">${skill.demand_count} jobs</span>
                     </div>
                 </div>
             `).join('');
             document.getElementById('trendResults').innerHTML = skillsHTML;
+            
+            // Render Chart
+            if (data.graph_data) {
+                console.log('📈 Rendering trending chart...');
+                renderTrendChart(data.graph_data);
+            }
         }
     } catch (error) {
+        console.error('❌ Trending skills error:', error);
         showError(`Trending skills failed: ${error.message}`);
     }
 }
 
 async function getEmergingSkills() {
+    console.log('🚀 Fetching emerging skills...');
     const role = document.getElementById('targetRole').value;
     const url = role ? 
         `${API_BASE_URL}/api/skill-trends/emerging?threshold_days=30&role=${encodeURIComponent(role)}` : 
@@ -1035,23 +1050,122 @@ async function getEmergingSkills() {
         
     try {
         const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         
+        console.log('✅ Emerging data received:', data);
+        
         if (data.emerging_skills) {
+            if (data.emerging_skills.length === 0) {
+                document.getElementById('trendResults').innerHTML = '<p style="grid-column: 1/-1; text-align: center; padding: 20px;">No specific emerging skills detected for this role yet.</p>';
+                document.getElementById('trendChartContainer').style.display = 'none';
+                return;
+            }
+
             const skillsHTML = data.emerging_skills.map(skill => `
-                <div class="trend-card" style="border-left: 4px solid var(--accent-green);">
-                    <h4 style="color: var(--accent-green); margin-bottom: 8px;">${skill.skill_name}</h4>
-                    <div style="font-size: 0.9em; color: var(--text-secondary); margin-bottom: 5px;">🚀 Emerging for ${role || 'Market'}</div>
+                <div class="trend-card" style="border-left: 4px solid var(--accent-green); padding: 15px; background: rgba(255,255,255,0.02); border-radius: 8px;">
+                    <h4 style="color: var(--accent-green); margin: 0 0 8px 0; font-size: 1.1em;">${skill.skill_name}</h4>
+                    <div style="font-size: 0.85em; color: var(--text-secondary); margin-bottom: 5px;">🚀 Emerging for ${data.role || 'Market'}</div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-                        <span style="font-weight: 600; color: var(--primary);">Score: ${skill.emergence_score}</span>
-                        <span style="font-size: 0.8em; opacity: 0.7;">First seen: ${new Date(skill.first_seen).toLocaleDateString()}</span>
+                        <span style="font-weight: 600; color: var(--primary); font-size: 0.9em;">Score: ${skill.emergence_score}</span>
+                        <span style="font-size: 0.75em; opacity: 0.7;">First seen: ${new Date(skill.first_seen).toLocaleDateString()}</span>
                     </div>
                 </div>
             `).join('');
             document.getElementById('trendResults').innerHTML = skillsHTML;
+            
+            // For emerging, we'll create a simple growth chart
+            const graphData = {
+                type: 'bar',
+                title: `Emerging Skills Growth (${data.role || 'Market'})`,
+                labels: data.emerging_skills.map(s => s.skill_name),
+                datasets: [{
+                    label: 'Emergence Score',
+                    data: data.emerging_skills.map(s => s.emergence_score),
+                    backgroundColor: 'rgba(16, 185, 129, 0.6)',
+                    borderColor: 'rgba(16, 185, 129, 1)',
+                    borderWidth: 1
+                }]
+            };
+            renderTrendChart(graphData);
         }
     } catch (error) {
+        console.error('❌ Emerging skills error:', error);
         showError(`Emerging skills failed: ${error.message}`);
+    }
+}
+
+function renderTrendChart(graphData) {
+    console.log('📈 Attempting to render chart with data:', graphData);
+    const container = document.getElementById('trendChartContainer');
+    const canvas = document.getElementById('trendChart');
+    
+    if (!canvas) {
+        console.error('❌ trendChart canvas not found in DOM!');
+        return;
+    }
+    
+    if (!graphData || !graphData.labels || graphData.labels.length === 0) {
+        console.warn('⚠️ No graph data available to render');
+        container.style.display = 'none';
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    container.style.display = 'block';
+    
+    // Clear previous chart instance
+    if (trendChart) {
+        trendChart.destroy();
+    }
+    
+    try {
+        trendChart = new Chart(ctx, {
+            type: graphData.type || 'bar',
+            data: {
+                labels: graphData.labels,
+                datasets: graphData.datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: graphData.title,
+                        color: '#f1f5f9',
+                        font: { size: 18, family: 'Outfit', weight: '700' }
+                    },
+                    legend: {
+                        position: 'top',
+                        labels: { color: '#94a3b8', font: { family: 'Outfit' }, padding: 20 }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        titleFont: { family: 'Outfit' },
+                        bodyFont: { family: 'Outfit' }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#94a3b8', font: { family: 'Outfit' } }
+                    }
+                }
+            }
+        });
+        console.log('✅ Chart rendered successfully');
+    } catch (chartError) {
+        console.error('❌ Chart.js rendering error:', chartError);
     }
 }
 

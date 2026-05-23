@@ -153,6 +153,23 @@ class MongoDBClient:
         self.logger.info(f"Upserted into gold_{collection_name}")
         return result
     
+    def is_connected(self) -> bool:
+        """Check if MongoDB connection is alive"""
+        try:
+            if self.client:
+                self.client.admin.command('ping')
+                return True
+            return False
+        except Exception:
+            return False
+    
+    def get_collection(self, collection_name):
+        """Get a MongoDB collection by name (without layer prefix)"""
+        if self.db is None:
+            if not self.connect():
+                raise ConnectionError("MongoDB not connected")
+        return self.db[collection_name]
+    
     # Utility Methods
     def get_collection_stats(self, layer=None):
         """Get statistics for all collections"""

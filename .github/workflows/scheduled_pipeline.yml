@@ -1,0 +1,54 @@
+name: RunaGen AI - Scheduled Live Data Pipeline
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Run every 6 hours
+  workflow_dispatch: # Allow manual trigger from GitHub Actions tab
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} # Needed to commit models back to the repo
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install db-dtypes apscheduler
+
+      - name: Create BigQuery credentials directory
+        run: mkdir -p credentials
+
+      - name: Create credentials file from secret
+        run: |
+          echo '${{ secrets.GCP_SA_KEY }}' > credentials/bigquery-key.json
+
+      - name: Run live pipeline
+        env:
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          MONGO_DB: ${{ secrets.MONGO_DB }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GOOGLE_APPLICATION_CREDENTIALS: credentials/bigquery-key.json
+        run: |
+          python run_pipeline_once.py --limit 200
+
+      - name: Commit and push updated models back to repository
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add models/
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update trained ML models [skip ci]" && git push)

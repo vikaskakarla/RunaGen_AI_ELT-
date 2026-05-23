@@ -38,53 +38,107 @@ class SkillTrendAnalyzer:
         self.dataset = 'runagen_gold'
     
     def get_trending_skills(self, days: int = 30, limit: int = 20, role: str = None) -> List[Dict]:
-        """Get trending skills in the last N days, optionally filtered by role"""
+        """Get trending skills in the last N days, filtered by role from actual job postings"""
         logger.info(f"📊 Analyzing trending skills (last {days} days) for role: {role or 'All'}...")
         
-        role_filter = f"AND LOWER(j.title) LIKE LOWER('%{role}%')" if role else ""
-        
-        query = f"""
-        SELECT 
-            skill_name,
-            skill_category,
-            COUNT(*) as demand_count,
-            ROUND(COUNT(*) / (SELECT COUNT(*) FROM `{self.project_id}.runagen_bronze.raw_jobs`) * 100, 2) as demand_percentage,
-            CURRENT_TIMESTAMP() as analyzed_at
-        FROM `{self.project_id}.runagen_bronze.raw_jobs` j
-        CROSS JOIN UNNEST(SPLIT(j.requirements, ',')) as skill_name
-        LEFT JOIN `{self.project_id}.runagen_bronze.raw_skills` s 
-            ON LOWER(TRIM(skill_name)) = LOWER(TRIM(s.skill_name))
-        WHERE j.scraped_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
-            {role_filter}
-        GROUP BY skill_name, skill_category
-        ORDER BY demand_count DESC
-        LIMIT {limit}
-        """
+        if role:
+            # Query skills from jobs that match the role
+            query = f"""
+            WITH role_jobs AS (
+                SELECT 
+                    j.job_id,
+                    j.title,
+                    j.company,
+                    j.requirements,
+                    j.scraped_at
+                FROM `{self.project_id}.runagen_bronze.raw_jobs` j
+                WHERE LOWER(j.title) LIKE LOWER('%{role}%')
+                    AND j.scraped_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
+            ),
+            skill_counts_raw AS (
+                SELECT 
+                    LOWER(TRIM(skill_name)) as skill_key,
+                    ANY_VALUE(TRIM(skill_name)) as skill_display_name,
+                    COUNT(DISTINCT rj.job_id) as demand_count,
+                    COUNT(DISTINCT rj.company) as company_count
+                FROM role_jobs rj
+                CROSS JOIN UNNEST(SPLIT(rj.requirements, ',')) as skill_name
+                WHERE LENGTH(TRIM(skill_name)) > 0
+                GROUP BY skill_key
+            )
+            SELECT 
+                sc.skill_display_name as skill_name,
+                COALESCE(s.skill_category, 'Other') as skill_category,
+                sc.demand_count,
+                sc.company_count,
+                ROUND(sc.demand_count * 100.0 / NULLIF((SELECT COUNT(DISTINCT job_id) FROM role_jobs), 0), 2) as demand_percentage
+            FROM skill_counts_raw sc
+            LEFT JOIN (
+                SELECT LOWER(TRIM(skill_name)) as skill_key, ANY_VALUE(skill_category) as skill_category 
+                FROM `{self.project_id}.runagen_bronze.raw_skills` 
+                GROUP BY 1
+            ) s ON sc.skill_key = s.skill_key
+            WHERE sc.demand_count >= 1
+            ORDER BY sc.demand_count DESC, sc.company_count DESC
+            LIMIT {limit}
+            """
+        else:
+            # Query all skills without role filter
+            query = f"""
+            WITH skill_counts_raw AS (
+                SELECT 
+                    LOWER(TRIM(skill_name)) as skill_key,
+                    ANY_VALUE(TRIM(skill_name)) as skill_display_name,
+                    COUNT(DISTINCT j.job_id) as demand_count,
+                    COUNT(DISTINCT j.company) as company_count
+                FROM `{self.project_id}.runagen_bronze.raw_jobs` j
+                CROSS JOIN UNNEST(SPLIT(j.requirements, ',')) as skill_name
+                WHERE j.scraped_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
+                    AND LENGTH(TRIM(skill_name)) > 0
+                GROUP BY skill_key
+            )
+            SELECT 
+                sc.skill_display_name as skill_name,
+                COALESCE(s.skill_category, 'Other') as skill_category,
+                sc.demand_count,
+                sc.company_count,
+                ROUND(sc.demand_count * 100.0 / NULLIF((SELECT COUNT(DISTINCT job_id) FROM `{self.project_id}.runagen_bronze.raw_jobs`), 0), 2) as demand_percentage
+            FROM skill_counts_raw sc
+            LEFT JOIN (
+                SELECT LOWER(TRIM(skill_name)) as skill_key, ANY_VALUE(skill_category) as skill_category 
+                FROM `{self.project_id}.runagen_bronze.raw_skills` 
+                GROUP BY 1
+            ) s ON sc.skill_key = s.skill_key
+            WHERE sc.demand_count >= 2
+            ORDER BY sc.demand_count DESC, sc.company_count DESC
+            LIMIT {limit}
+            """
         
         try:
             results = self.bq_client.query(query).to_dataframe()
             
+            if results.empty:
+                logger.warning(f"No trending skills found for role: {role}")
+                return []
+            
             trends = []
             for _, row in results.iterrows():
-                # Handle NaN values
-                skill_category = row['skill_category']
-                if pd.isna(skill_category):
-                    skill_category = 'Other'
-                
                 trends.append({
                     'skill_name': str(row['skill_name']).strip(),
-                    'skill_category': str(skill_category),
+                    'skill_category': str(row['skill_category']),
                     'demand_count': int(row['demand_count']),
+                    'company_count': int(row['company_count']),
                     'demand_percentage': float(row['demand_percentage']),
-                    'trend_direction': 'rising',  # Can be enhanced with historical data
-                    'analyzed_at': str(row['analyzed_at'])
+                    'trend_direction': 'rising'
                 })
             
-            logger.info(f"✅ Found {len(trends)} trending skills")
+            logger.info(f"✅ Found {len(trends)} trending skills for {role or 'all roles'}")
             return trends
         
         except Exception as e:
             logger.error(f"❌ Error analyzing trending skills: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def get_skill_growth_rate(self, skill_name: str, days: int = 90) -> Dict:
@@ -226,70 +280,140 @@ class SkillTrendAnalyzer:
             return []
     
     def get_emerging_skills(self, threshold_days: int = 30, role: str = None) -> List[Dict]:
-        """Identify emerging skills, optionally filtered by role"""
+        """Identify emerging skills for a specific role based on recent job postings"""
         logger.info(f"🚀 Identifying emerging skills for role: {role or 'All'}...")
         
-        # If role provided, we need to join with raw_jobs to filter
         if role:
+            # Get skills from recent job postings for this role
             query = f"""
+            WITH recent_skills AS (
+                SELECT 
+                    TRIM(skill_name) as skill_name,
+                    j.scraped_at,
+                    j.job_id
+                FROM `{self.project_id}.runagen_bronze.raw_jobs` j
+                CROSS JOIN UNNEST(SPLIT(j.requirements, ',')) as skill_name
+                WHERE LOWER(j.title) LIKE LOWER('%{role}%')
+                    AND j.scraped_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {threshold_days} DAY)
+                    AND LENGTH(TRIM(skill_name)) > 0
+            ),
+            older_skills AS (
+                SELECT 
+                    TRIM(skill_name) as skill_name,
+                    COUNT(DISTINCT j.job_id) as old_count
+                FROM `{self.project_id}.runagen_bronze.raw_jobs` j
+                CROSS JOIN UNNEST(SPLIT(j.requirements, ',')) as skill_name
+                WHERE LOWER(j.title) LIKE LOWER('%{role}%')
+                    AND j.scraped_at < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {threshold_days} DAY)
+                    AND j.scraped_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {threshold_days * 2} DAY)
+                    AND LENGTH(TRIM(skill_name)) > 0
+                GROUP BY TRIM(skill_name)
+            ),
+            skill_analysis AS (
+                SELECT 
+                    rs.skill_name,
+                    COUNT(DISTINCT rs.job_id) as recent_count,
+                    COALESCE(os.old_count, 0) as old_count,
+                    MIN(rs.scraped_at) as first_seen,
+                    MAX(rs.scraped_at) as last_seen
+                FROM recent_skills rs
+                LEFT JOIN older_skills os ON rs.skill_name = os.skill_name
+                GROUP BY rs.skill_name, os.old_count
+            )
             SELECT 
-                skill_name,
-                skill_category,
-                COUNT(*) as recent_count,
-                MIN(extracted_at) as first_seen,
-                MAX(extracted_at) as last_seen
-            FROM `{self.project_id}.runagen_bronze.raw_skills` rs
-            WHERE rs.extracted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {threshold_days} DAY)
-                AND EXISTS (
-                    SELECT 1 FROM `{self.project_id}.runagen_bronze.raw_jobs` j 
-                    WHERE LOWER(j.title) LIKE LOWER('%{role}%')
-                        AND LOWER(j.requirements) LIKE LOWER(CONCAT('%', rs.skill_name, '%'))
-                )
-            GROUP BY skill_name, skill_category
-            HAVING COUNT(*) >= 2
-            ORDER BY recent_count DESC
+                sa.skill_name,
+                COALESCE(s.skill_category, 'Other') as skill_category,
+                sa.recent_count,
+                sa.old_count,
+                sa.first_seen,
+                sa.last_seen,
+                ROUND((sa.recent_count - sa.old_count) * 100.0 / NULLIF(sa.old_count, 0), 2) as growth_rate
+            FROM skill_analysis sa
+            LEFT JOIN `{self.project_id}.runagen_bronze.raw_skills` s 
+                ON LOWER(TRIM(sa.skill_name)) = LOWER(TRIM(s.skill_name))
+            WHERE sa.recent_count >= 2
+                AND (sa.old_count = 0 OR sa.recent_count > sa.old_count)
+            ORDER BY 
+                CASE WHEN sa.old_count = 0 THEN 1 ELSE 0 END DESC,
+                growth_rate DESC,
+                sa.recent_count DESC
             LIMIT 20
             """
         else:
+            # Query without role filter
             query = f"""
+            WITH recent_skills AS (
+                SELECT 
+                    LOWER(TRIM(skill_name)) as skill_key,
+                    ANY_VALUE(TRIM(skill_name)) as skill_display_name,
+                    j.scraped_at,
+                    j.job_id
+                FROM `{self.project_id}.runagen_bronze.raw_jobs` j
+                CROSS JOIN UNNEST(SPLIT(j.requirements, ',')) as skill_name
+                WHERE j.scraped_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {threshold_days} DAY)
+                    AND LENGTH(TRIM(skill_name)) > 0
+                GROUP BY skill_key, j.scraped_at, j.job_id
+            ),
+            skill_analysis AS (
+                SELECT 
+                    skill_key,
+                    ANY_VALUE(skill_display_name) as skill_display_name,
+                    COUNT(DISTINCT job_id) as recent_count,
+                    MIN(scraped_at) as first_seen,
+                    MAX(scraped_at) as last_seen
+                FROM recent_skills
+                GROUP BY skill_key
+            )
             SELECT 
-                skill_name,
-                skill_category,
-                COUNT(*) as recent_count,
-                MIN(extracted_at) as first_seen,
-                MAX(extracted_at) as last_seen
-            FROM `{self.project_id}.runagen_bronze.raw_skills`
-            WHERE extracted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {threshold_days} DAY)
-            GROUP BY skill_name, skill_category
-            HAVING COUNT(*) >= 5
-            ORDER BY recent_count DESC
+                sa.skill_display_name as skill_name,
+                COALESCE(s.skill_category, 'Other') as skill_category,
+                sa.recent_count,
+                sa.first_seen,
+                sa.last_seen
+            FROM skill_analysis sa
+            LEFT JOIN (
+                SELECT LOWER(TRIM(skill_name)) as skill_key, ANY_VALUE(skill_category) as skill_category 
+                FROM `{self.project_id}.runagen_bronze.raw_skills` 
+                GROUP BY 1
+            ) s ON sa.skill_key = s.skill_key
+            WHERE sa.recent_count >= 2
+            ORDER BY sa.recent_count DESC
             LIMIT 20
             """
         
         try:
             results = self.bq_client.query(query).to_dataframe()
             
+            if results.empty:
+                logger.warning(f"No emerging skills found for role: {role}")
+                return []
+            
             emerging = []
             for _, row in results.iterrows():
-                # Handle NaN values
-                skill_category = row['skill_category']
-                if pd.isna(skill_category):
-                    skill_category = 'Other'
-                
-                emerging.append({
+                skill_data = {
                     'skill_name': str(row['skill_name']).strip(),
-                    'skill_category': str(skill_category),
+                    'skill_category': str(row['skill_category']),
                     'recent_count': int(row['recent_count']),
                     'first_seen': str(row['first_seen']),
                     'last_seen': str(row['last_seen']),
                     'emergence_score': round(int(row['recent_count']) / threshold_days, 2)
-                })
+                }
+                
+                # Add growth rate if available (role-based query)
+                if 'growth_rate' in row and not pd.isna(row['growth_rate']):
+                    skill_data['growth_rate'] = float(row['growth_rate'])
+                    skill_data['old_count'] = int(row['old_count'])
+                    skill_data['is_new'] = int(row['old_count']) == 0
+                
+                emerging.append(skill_data)
             
-            logger.info(f"✅ Found {len(emerging)} emerging skills")
+            logger.info(f"✅ Found {len(emerging)} emerging skills for {role or 'all roles'}")
             return emerging
         
         except Exception as e:
             logger.error(f"❌ Error identifying emerging skills: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def get_skill_demand_by_role(self, role: str) -> Dict:

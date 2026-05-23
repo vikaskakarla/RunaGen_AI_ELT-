@@ -110,22 +110,43 @@ class LinkedInSeleniumScraper:
                 'education': []
             }
             
-            # Extract name
-            try:
-                name_elem = WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, 'h1.text-heading-xlarge'))
-                )
-                profile_data['name'] = name_elem.text.strip()
-                logger.info(f"✅ Found name: {profile_data['name']}")
-            except TimeoutException:
+            # Extract name - Try multiple selectors for public profiles
+            name_selectors = [
+                'h1.text-heading-xlarge', 
+                'h1.top-card-layout__title', 
+                'h1.authwall-base__title',
+                'h1.public-profile-title',
+                'h1.profile-top-card-hero-content__title'
+            ]
+            for selector in name_selectors:
+                try:
+                    name_elem = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    profile_data['name'] = name_elem.text.strip()
+                    logger.info(f"✅ Found name with {selector}: {profile_data['name']}")
+                    break
+                except NoSuchElementException:
+                    continue
+            
+            if not profile_data['name']:
                 logger.warning("⚠️ Could not find name element")
             
-            # Extract headline
-            try:
-                headline_elem = self.driver.find_element(By.CSS_SELECTOR, 'div.text-body-medium')
-                profile_data['headline'] = headline_elem.text.strip()
-                logger.info(f"✅ Found headline: {profile_data['headline'][:50]}...")
-            except NoSuchElementException:
+            # Extract headline - Try multiple selectors
+            headline_selectors = [
+                'div.text-body-medium', 
+                'h2.top-card-layout__headline', 
+                'h2.authwall-base__subtitle',
+                'p.profile-top-card-hero-content__headline'
+            ]
+            for selector in headline_selectors:
+                try:
+                    headline_elem = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    profile_data['headline'] = headline_elem.text.strip()
+                    logger.info(f"✅ Found headline with {selector}: {profile_data['headline'][:50]}...")
+                    break
+                except NoSuchElementException:
+                    continue
+            
+            if not profile_data['headline']:
                 logger.warning("⚠️ Could not find headline")
             
             # Scroll to load more content
@@ -160,48 +181,66 @@ class LinkedInSeleniumScraper:
             }
     
     def _extract_certifications(self) -> List[Dict]:
-        """Extract certifications from profile"""
+        """Extract certifications from profile with multiple selector strategies"""
         certifications = []
         
-        try:
-            # Look for certification section
-            cert_sections = self.driver.find_elements(By.XPATH, 
-                "//section[contains(@id, 'licenses_and_certifications')]//li")
+        # Strategy 1: Logged-in/Modern UI
+        strategies = [
+            # Strategy A: Standard Section ID
+            {"section": "//section[contains(@id, 'licenses_and_certifications')]//li", 
+             "name": "div.mr1 span[aria-hidden='true']", 
+             "issuer": "span.t-14.t-normal span[aria-hidden='true']"},
             
-            for cert_elem in cert_sections[:10]:  # Limit to 10
-                try:
-                    # Extract certification name
-                    name_elem = cert_elem.find_element(By.CSS_SELECTOR, 'div.mr1 span[aria-hidden="true"]')
-                    name = name_elem.text.strip()
-                    
-                    # Extract issuer
-                    issuer_elem = cert_elem.find_element(By.CSS_SELECTOR, 'span.t-14.t-normal span[aria-hidden="true"]')
-                    issuer = issuer_elem.text.strip()
-                    
-                    # Extract date (if available)
-                    date = None
-                    try:
-                        date_elem = cert_elem.find_element(By.CSS_SELECTOR, 'span.t-14.t-normal.t-black--light span[aria-hidden="true"]')
-                        date = date_elem.text.strip()
-                    except NoSuchElementException:
-                        pass
-                    
-                    if name and issuer:
-                        certifications.append({
-                            'name': name,
-                            'issuer': issuer,
-                            'date': date,
-                            'source': 'LinkedIn (Selenium)'
-                        })
-                        logger.info(f"  ✓ Found cert: {name}")
+            # Strategy B: Public Profile Layout 1
+            {"section": "li.certification-item", 
+             "name": "h3.certification-item__title", 
+             "issuer": "h4.certification-item__subtitle"},
+            
+            # Strategy C: Profile V2 Public
+            {"section": "li.profile-section-card", 
+             "name": "h3.profile-section-card__title", 
+             "issuer": "h4.profile-section-card__subtitle"}
+        ]
+        
+        for strategy in strategies:
+            try:
+                if strategy['section'].startswith('//'):
+                    items = self.driver.find_elements(By.XPATH, strategy['section'])
+                else:
+                    items = self.driver.find_elements(By.CSS_SELECTOR, strategy['section'])
                 
-                except Exception as e:
-                    logger.debug(f"Error parsing certification: {e}")
-                    continue
+                if items:
+                    for item in items[:10]:
+                        try:
+                            name = item.find_element(By.CSS_SELECTOR, strategy['name']).text.strip()
+                            issuer = item.find_element(By.CSS_SELECTOR, strategy['issuer']).text.strip()
+                            if name and issuer:
+                                certifications.append({
+                                    'name': name,
+                                    'issuer': issuer,
+                                    'source': f'LinkedIn ({strategy["name"]})'
+                                })
+                                logger.info(f"  ✓ Found cert: {name}")
+                        except NoSuchElementException:
+                            continue
+                    if certifications: break # Success with this strategy
+            except Exception:
+                continue
         
-        except Exception as e:
-            logger.warning(f"⚠️ Could not extract certifications: {e}")
-        
+        # Final fallback: Look for any text containing "Certificate" or "License"
+        if not certifications:
+            try:
+                text_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Certificate') or contains(text(), 'License')]/ancestor::li")
+                for elem in text_elements[:5]:
+                    text = elem.text.split('\n')
+                    if len(text) >= 2:
+                        certifications.append({
+                            'name': text[0].strip(),
+                            'issuer': text[1].strip(),
+                            'source': 'LinkedIn (Text Fallback)'
+                        })
+            except Exception: pass
+            
         return certifications
     
     def _extract_skills(self) -> List[str]:

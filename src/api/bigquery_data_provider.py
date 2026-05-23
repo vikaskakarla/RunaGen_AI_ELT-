@@ -22,8 +22,22 @@ class BigQueryDataProvider:
     def __init__(self):
         """Initialize BigQuery client"""
         credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'credentials/bigquery-key.json')
+        gcp_json = os.getenv('GCP_SERVICE_ACCOUNT_JSON')
         
-        if os.path.exists(credentials_path):
+        if gcp_json:
+            try:
+                import json
+                info = json.loads(gcp_json)
+                credentials = service_account.Credentials.from_service_account_info(info)
+                self.bq_client = bigquery.Client(
+                    credentials=credentials,
+                    project=os.getenv('GCP_PROJECT_ID', 'runagen-ai')
+                )
+                logger.info("✓ BigQuery client initialized from GCP_SERVICE_ACCOUNT_JSON")
+            except Exception as e:
+                logger.error(f"Failed to initialize BigQuery from GCP_SERVICE_ACCOUNT_JSON: {e}")
+                self.bq_client = bigquery.Client(project=os.getenv('GCP_PROJECT_ID', 'runagen-ai'))
+        elif os.path.exists(credentials_path):
             credentials = service_account.Credentials.from_service_account_file(credentials_path)
             self.bq_client = bigquery.Client(
                 credentials=credentials,
@@ -111,8 +125,8 @@ class BigQueryDataProvider:
                     WHEN currency IS NULL OR currency = '' THEN 'INR'
                     ELSE CAST(currency AS STRING)
                 END as currency,
-                CAST(employment_type AS STRING) as employment_type,
-                CAST(experience_level AS STRING) as experience_level,
+                -- CAST(employment_type AS STRING) as employment_type,
+                -- CAST(experience_level AS STRING) as experience_level,
                 CAST(url AS STRING) as url
             FROM `{self.project_id}.runagen_bronze.raw_jobs`
             WHERE title IS NOT NULL
@@ -141,22 +155,16 @@ class BigQueryDataProvider:
                     location_val = str(row.get('location', '')).strip()
                     description_val = str(row.get('description', '')).strip()[:200]
                     
-                    # Handle salary conversion
+                    # Handle salary conversion - show exact values from BigQuery
                     try:
                         salary_min_val = int(float(row.get('salary_min', 0))) if pd.notna(row.get('salary_min')) else 0
-                        # Fallback for 0 salaries
-                        if salary_min_val < 10000:
-                            salary_min_val = 600000 # 6L fallback
                     except (ValueError, TypeError):
-                        salary_min_val = 600000
+                        salary_min_val = 0
                     
                     try:
                         salary_max_val = int(float(row.get('salary_max', 0))) if pd.notna(row.get('salary_max')) else 0
-                        # Fallback for 0 salaries
-                        if salary_max_val < 10000:
-                            salary_max_val = 1200000 # 12L fallback
                     except (ValueError, TypeError):
-                        salary_max_val = 1200000
+                        salary_max_val = 0
                     
                     currency_val = str(row.get('currency', 'INR')).strip()
                     if not currency_val or currency_val == 'None':
@@ -408,6 +416,64 @@ class BigQueryDataProvider:
         
         return jobs
     
+    def get_training_data(self) -> pd.DataFrame:
+        """Get training data from BigQuery raw_jobs table for model retraining"""
+        try:
+            query = f"""
+            SELECT 
+                CAST(title AS STRING) as title,
+                CASE 
+                    WHEN company LIKE '%display_name%' THEN 
+                        REGEXP_EXTRACT(company, r"'display_name':\\s*'([^']+)'")
+                    ELSE CAST(company AS STRING)
+                END as company,
+                CASE 
+                    WHEN location LIKE '%display_name%' THEN 
+                        REGEXP_EXTRACT(location, r"'display_name':\\s*'([^']+)'")
+                    ELSE CAST(location AS STRING)
+                END as location,
+                CAST(requirements AS STRING) as requirements,
+                CAST(salary_min AS FLOAT64) as salary_min,
+                CAST(salary_max AS FLOAT64) as salary_max,
+                CAST(description AS STRING) as description,
+                'adzuna' as source
+            FROM `{self.project_id}.runagen_bronze.raw_jobs`
+            WHERE title IS NOT NULL
+            LIMIT 5000
+            """
+            
+            df = self.bq_client.query(query).to_dataframe()
+            
+            if not df.empty:
+                # Post-process columns
+                df['skills'] = df['requirements'].apply(
+                    lambda x: [s.strip() for s in str(x).split(',') if s.strip()] if x else []
+                )
+                df['skills_count'] = df['skills'].apply(len)
+                df['description_length'] = df['description'].fillna('').apply(len)
+                df['has_salary'] = df['salary_min'].apply(lambda x: 1 if pd.notna(x) and x > 0 else 0)
+                df['job_type'] = 'full_time'
+                df['experience_required'] = ''
+                
+                # Normalize career
+                df['career'] = df['title'].apply(self._normalize_role_title)
+                # Fill missing careers with a default mapping or software engineer
+                df['career'] = df['career'].fillna('Software Engineer')
+                
+                # Keep only training columns
+                cols = [
+                    'title', 'company', 'location', 'skills', 'experience_required',
+                    'salary_min', 'salary_max', 'job_type', 'description_length',
+                    'skills_count', 'has_salary', 'source', 'career'
+                ]
+                df = df[cols]
+                
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error getting training data from BigQuery: {e}")
+            return pd.DataFrame()
+
     def close(self):
         """Close BigQuery connection"""
         if self.bq_client:

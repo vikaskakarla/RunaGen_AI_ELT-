@@ -37,8 +37,22 @@ class MongoDBToBigQueryETL:
         
         # BigQuery connection
         credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'credentials/bigquery-key.json')
+        gcp_json = os.getenv('GCP_SERVICE_ACCOUNT_JSON')
         
-        if os.path.exists(credentials_path):
+        if gcp_json:
+            try:
+                import json
+                info = json.loads(gcp_json)
+                credentials = service_account.Credentials.from_service_account_info(info)
+                self.bq_client = bigquery.Client(
+                    credentials=credentials,
+                    project=os.getenv('GCP_PROJECT_ID', 'runagen-ai-warehouse')
+                )
+                logger.info("✓ BigQuery client initialized from GCP_SERVICE_ACCOUNT_JSON")
+            except Exception as e:
+                logger.error(f"Failed to initialize BigQuery from GCP_SERVICE_ACCOUNT_JSON: {e}")
+                self.bq_client = bigquery.Client(project=os.getenv('GCP_PROJECT_ID', 'runagen-ai-warehouse'))
+        elif os.path.exists(credentials_path):
             credentials = service_account.Credentials.from_service_account_file(credentials_path)
             self.bq_client = bigquery.Client(
                 credentials=credentials,
@@ -52,6 +66,38 @@ class MongoDBToBigQueryETL:
         self.dataset_bronze = 'runagen_bronze'
         self.dataset_silver = 'runagen_silver'
         self.dataset_gold = 'runagen_gold'
+    
+    def _extract_skills_from_text(self, text: str) -> str:
+        """Extract common skills from job description text"""
+        if not text or not isinstance(text, str):
+            return ''
+        
+        # Common tech skills to look for
+        common_skills = [
+            'Python', 'Java', 'JavaScript', 'TypeScript', 'C++', 'C#', 'Ruby', 'PHP', 'Go', 'Rust',
+            'React', 'Angular', 'Vue', 'Node.js', 'Django', 'Flask', 'Spring', 'Express',
+            'SQL', 'MySQL', 'PostgreSQL', 'MongoDB', 'Redis', 'Cassandra', 'Oracle',
+            'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Jenkins', 'Git', 'CI/CD',
+            'Machine Learning', 'Deep Learning', 'TensorFlow', 'PyTorch', 'Scikit-learn',
+            'REST API', 'GraphQL', 'Microservices', 'Agile', 'Scrum', 'DevOps',
+            'HTML', 'CSS', 'Bootstrap', 'Tailwind', 'SASS', 'LESS',
+            'Linux', 'Unix', 'Windows', 'Mac OS',
+            'Pandas', 'NumPy', 'Matplotlib', 'Seaborn',
+            'Spark', 'Hadoop', 'Kafka', 'Airflow', 'dbt',
+            'Tableau', 'Power BI', 'Looker', 'Excel',
+            '.NET', 'ASP.NET', 'Entity Framework',
+            'Android', 'iOS', 'React Native', 'Flutter',
+            'Selenium', 'Pytest', 'JUnit', 'Jest', 'Mocha'
+        ]
+        
+        text_lower = text.lower()
+        found_skills = []
+        
+        for skill in common_skills:
+            if skill.lower() in text_lower:
+                found_skills.append(skill)
+        
+        return ', '.join(found_skills) if found_skills else ''
     
     def extract_jobs_from_mongodb(self) -> pd.DataFrame:
         """Extract job data from MongoDB"""
@@ -74,7 +120,22 @@ class MongoDBToBigQueryETL:
                 return pd.DataFrame()
             
             logger.info(f"   Using collection: {collection_name_used}")
-            jobs = list(jobs_collection.find())
+            
+            # Get total count
+            total_count = jobs_collection.count_documents({})
+            logger.info(f"   Total jobs in MongoDB: {total_count:,}")
+            
+            # Process in batches to avoid memory issues
+            batch_size = 5000
+            all_jobs = []
+            
+            for skip in range(0, total_count, batch_size):
+                logger.info(f"   Processing batch {skip//batch_size + 1} ({skip:,} to {min(skip+batch_size, total_count):,})...")
+                batch = list(jobs_collection.find().skip(skip).limit(batch_size))
+                all_jobs.extend(batch)
+            
+            jobs = all_jobs
+            logger.info(f"   Loaded {len(jobs):,} jobs from MongoDB")
             
             if not jobs:
                 logger.warning("⚠️  No jobs found in MongoDB")
@@ -83,66 +144,98 @@ class MongoDBToBigQueryETL:
             # Extract data from nested structure
             extracted_jobs = []
             for job in jobs:
-                if 'data' in job and isinstance(job['data'], dict):
-                    job_data = job['data'].copy()
-                    job_data['_id'] = job['_id']
-                    extracted_jobs.append(job_data)
-                else:
-                    extracted_jobs.append(job)
+                try:
+                    # Data is nested under 'data' key
+                    if 'data' in job and isinstance(job['data'], dict):
+                        data = job['data']
+                        
+                        # Extract company name from nested object
+                        company = ''
+                        if 'company' in data and isinstance(data['company'], dict):
+                            company = data['company'].get('display_name', '')
+                        elif 'company' in data:
+                            company = str(data['company'])
+                        
+                        # Extract location from nested object
+                        location = ''
+                        if 'location' in data and isinstance(data['location'], dict):
+                            location = data['location'].get('display_name', '')
+                        elif 'location' in data:
+                            location = str(data['location'])
+                        
+                        # Extract category
+                        category = ''
+                        if 'category' in data and isinstance(data['category'], dict):
+                            category = data['category'].get('label', '')
+                        
+                        # Build flat job record
+                        job_record = {
+                            'job_id': str(job.get('_id', '')),
+                            'external_id': data.get('id', ''),
+                            'title': data.get('title', ''),
+                            'company': company,
+                            'location': location,
+                            'description': data.get('description', ''),
+                            'url': data.get('redirect_url', ''),
+                            'posted_date': data.get('created', None),
+                            'category': category,
+                            'latitude': data.get('latitude', None),
+                            'longitude': data.get('longitude', None),
+                            'salary_is_predicted': data.get('salary_is_predicted', '0'),
+                            # Salary fields don't exist in Adzuna data
+                            'salary_min': data.get('salary_min', None),
+                            'salary_max': data.get('salary_max', None),
+                            'currency': data.get('currency', 'INR'),
+                            # Metadata
+                            'source': job.get('metadata', {}).get('source', 'adzuna'),
+                            'inserted_at': job.get('inserted_at', None),
+                            'layer': job.get('layer', 'bronze')
+                        }
+                        
+                        extracted_jobs.append(job_record)
+                    else:
+                        # Fallback for non-nested structure
+                        extracted_jobs.append(job)
+                except Exception as e:
+                    logger.warning(f"⚠️ Error extracting job {job.get('_id')}: {e}")
+                    continue
             
             # Convert to DataFrame
             df = pd.DataFrame(extracted_jobs)
             
-            # Rename columns to match our schema
-            column_mapping = {
-                '_id': 'job_id',
-                'id': 'external_id',
-                'title': 'title',
-                'company': 'company',
-                'location': 'location',
-                'description': 'description',
-                'salary_min': 'salary_min',
-                'salary_max': 'salary_max',
-                'created': 'posted_date',
-                'redirect_url': 'url'
-            }
+            if df.empty:
+                logger.warning("⚠️ No jobs extracted")
+                return pd.DataFrame()
             
-            # Rename columns that exist
-            for old_col, new_col in column_mapping.items():
-                if old_col in df.columns:
-                    df = df.rename(columns={old_col: new_col})
-            
-            # Convert job_id to string
-            if 'job_id' in df.columns:
-                df['job_id'] = df['job_id'].astype(str)
-            
-            # Add metadata
-            df['source'] = 'mongodb'
+            # Add scraped_at timestamp
             df['scraped_at'] = datetime.now()
             
-            # Ensure required columns exist with proper types
+            # Extract requirements from description (since Adzuna doesn't provide them)
+            logger.info("   Extracting skills/requirements from descriptions...")
+            df['requirements'] = df['description'].apply(self._extract_skills_from_text)
+            
+            # Ensure required columns exist
             required_columns = [
-                'job_id', 'source', 'title', 'company', 'location', 
+                'job_id', 'external_id', 'source', 'title', 'company', 'location', 
                 'description', 'requirements', 'salary_min', 'salary_max', 
-                'currency', 'employment_type', 'experience_level', 
-                'posted_date', 'scraped_at', 'url'
+                'currency', 'category', 'posted_date', 'scraped_at', 'url'
             ]
             
             for col in required_columns:
                 if col not in df.columns:
                     df[col] = None
             
-            # Cast columns to proper types to avoid BigQuery type detection issues
+            # Cast columns to proper types
             df['job_id'] = df['job_id'].astype(str)
-            df['source'] = df['source'].astype(str)
+            df['external_id'] = df['external_id'].fillna('').astype(str)
+            df['source'] = df['source'].fillna('adzuna').astype(str)
             df['title'] = df['title'].fillna('').astype(str)
             df['company'] = df['company'].fillna('').astype(str)
             df['location'] = df['location'].fillna('').astype(str)
             df['description'] = df['description'].fillna('').astype(str)
             df['requirements'] = df['requirements'].fillna('').astype(str)
-            df['currency'] = df['currency'].fillna('').astype(str)
-            df['employment_type'] = df['employment_type'].fillna('').astype(str)
-            df['experience_level'] = df['experience_level'].fillna('').astype(str)
+            df['currency'] = df['currency'].fillna('INR').astype(str)
+            df['category'] = df['category'].fillna('').astype(str)
             df['url'] = df['url'].fillna('').astype(str)
             
             # Convert salary columns to float
@@ -191,39 +284,41 @@ class MongoDBToBigQueryETL:
             # Extract data from nested structure
             extracted_skills = []
             for skill in skills:
-                if 'data' in skill and isinstance(skill['data'], dict):
-                    skill_data = skill['data'].copy()
-                    skill_data['_id'] = skill['_id']
-                    extracted_skills.append(skill_data)
-                else:
-                    extracted_skills.append(skill)
+                try:
+                    # Data is nested under 'data' key
+                    if 'data' in skill and isinstance(skill['data'], dict):
+                        data = skill['data']
+                        
+                        skill_record = {
+                            'skill_id': str(skill.get('_id', '')),
+                            'external_id': data.get('id', ''),
+                            'skill_name': data.get('name', ''),
+                            'skill_category': data.get('category', ''),
+                            'source': skill.get('metadata', {}).get('source', 'esco'),
+                            'inserted_at': skill.get('inserted_at', None),
+                            'layer': skill.get('layer', 'bronze')
+                        }
+                        
+                        extracted_skills.append(skill_record)
+                    else:
+                        # Fallback for non-nested structure
+                        extracted_skills.append(skill)
+                except Exception as e:
+                    logger.warning(f"⚠️ Error extracting skill {skill.get('_id')}: {e}")
+                    continue
             
             # Convert to DataFrame
             df = pd.DataFrame(extracted_skills)
             
-            # Rename columns to match our schema
-            column_mapping = {
-                '_id': 'skill_id',
-                'id': 'external_id',
-                'name': 'skill_name',
-                'category': 'skill_category'
-            }
+            if df.empty:
+                logger.warning("⚠️ No skills extracted")
+                return pd.DataFrame()
             
-            # Rename columns that exist
-            for old_col, new_col in column_mapping.items():
-                if old_col in df.columns:
-                    df = df.rename(columns={old_col: new_col})
-            
-            # Convert skill_id to string
-            if 'skill_id' in df.columns:
-                df['skill_id'] = df['skill_id'].astype(str)
-            
-            # Add metadata
-            df['source'] = 'mongodb'
+            # Add extracted_at timestamp
             df['extracted_at'] = datetime.now()
             
-            # Ensure required columns with proper types
-            required_columns = ['skill_id', 'skill_name', 'skill_category', 'source', 'extracted_at']
+            # Ensure required columns
+            required_columns = ['skill_id', 'external_id', 'skill_name', 'skill_category', 'source', 'extracted_at']
             
             for col in required_columns:
                 if col not in df.columns:
@@ -231,9 +326,10 @@ class MongoDBToBigQueryETL:
             
             # Cast columns to proper types
             df['skill_id'] = df['skill_id'].astype(str)
+            df['external_id'] = df['external_id'].fillna('').astype(str)
             df['skill_name'] = df['skill_name'].fillna('').astype(str)
-            df['skill_category'] = df['skill_category'].fillna('').astype(str)
-            df['source'] = df['source'].astype(str)
+            df['skill_category'] = df['skill_category'].fillna('Other').astype(str)
+            df['source'] = df['source'].fillna('esco').astype(str)
             
             # Select only required columns
             df = df[required_columns]
@@ -296,7 +392,7 @@ class MongoDBToBigQueryETL:
             return pd.DataFrame()
     
     def load_to_bigquery(self, df: pd.DataFrame, table_name: str, dataset: str = None):
-        """Load DataFrame to BigQuery with explicit schema"""
+        """Load DataFrame to BigQuery with explicit schema in batches"""
         if df.empty:
             logger.warning(f"⚠️  No data to load for {table_name}")
             return
@@ -304,70 +400,100 @@ class MongoDBToBigQueryETL:
         dataset = dataset or self.dataset_bronze
         table_id = f"{self.project_id}.{dataset}.{table_name}"
         
-        logger.info(f"📤 Loading {len(df)} rows to {table_id}...")
+        # Define explicit schemas
+        schema = None
         
-        try:
-            # Define explicit schemas to avoid type detection warnings
-            schema = None
+        if table_name == 'raw_jobs':
+            schema = [
+                bigquery.SchemaField("job_id", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("external_id", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("source", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("title", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("company", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("location", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("description", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("requirements", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("salary_min", "FLOAT64", mode="NULLABLE"),
+                bigquery.SchemaField("salary_max", "FLOAT64", mode="NULLABLE"),
+                bigquery.SchemaField("currency", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("category", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("posted_date", "TIMESTAMP", mode="NULLABLE"),
+                bigquery.SchemaField("scraped_at", "TIMESTAMP", mode="NULLABLE"),
+                bigquery.SchemaField("url", "STRING", mode="NULLABLE"),
+            ]
+        
+        elif table_name == 'raw_skills':
+            schema = [
+                bigquery.SchemaField("skill_id", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("external_id", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("skill_name", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("skill_category", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("source", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("extracted_at", "TIMESTAMP", mode="NULLABLE"),
+            ]
+        
+        elif table_name == 'raw_resumes':
+            schema = [
+                bigquery.SchemaField("resume_id", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("user_id", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("raw_text", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("file_name", "STRING", mode="NULLABLE"),
+                bigquery.SchemaField("file_size", "INTEGER", mode="NULLABLE"),
+                bigquery.SchemaField("uploaded_at", "TIMESTAMP", mode="NULLABLE"),
+                bigquery.SchemaField("processing_status", "STRING", mode="NULLABLE"),
+            ]
+        
+        # Load in batches for large datasets
+        batch_size = 5000
+        total_rows = len(df)
+        
+        if total_rows > batch_size:
+            logger.info(f"📤 Loading {total_rows:,} rows to {table_id} in batches...")
             
-            if table_name == 'raw_jobs':
-                schema = [
-                    bigquery.SchemaField("job_id", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("source", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("title", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("company", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("location", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("description", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("requirements", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("salary_min", "FLOAT64", mode="NULLABLE"),
-                    bigquery.SchemaField("salary_max", "FLOAT64", mode="NULLABLE"),
-                    bigquery.SchemaField("currency", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("employment_type", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("experience_level", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("posted_date", "TIMESTAMP", mode="NULLABLE"),
-                    bigquery.SchemaField("scraped_at", "TIMESTAMP", mode="NULLABLE"),
-                    bigquery.SchemaField("url", "STRING", mode="NULLABLE"),
-                ]
+            for i in range(0, total_rows, batch_size):
+                batch_df = df.iloc[i:i+batch_size]
+                batch_num = i // batch_size + 1
+                total_batches = (total_rows + batch_size - 1) // batch_size
+                
+                logger.info(f"   Batch {batch_num}/{total_batches}: Loading {len(batch_df):,} rows...")
+                
+                # First batch: WRITE_TRUNCATE, rest: WRITE_APPEND
+                write_disposition = bigquery.WriteDisposition.WRITE_TRUNCATE if i == 0 else bigquery.WriteDisposition.WRITE_APPEND
+                
+                job_config = bigquery.LoadJobConfig(
+                    write_disposition=write_disposition,
+                    schema=schema,
+                )
+                
+                try:
+                    job = self.bq_client.load_table_from_dataframe(
+                        batch_df, table_id, job_config=job_config
+                    )
+                    job.result()  # Wait for completion
+                    logger.info(f"   ✅ Batch {batch_num} loaded successfully")
+                except Exception as e:
+                    logger.error(f"   ❌ Error loading batch {batch_num}: {e}")
+                    raise
             
-            elif table_name == 'raw_skills':
-                schema = [
-                    bigquery.SchemaField("skill_id", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("skill_name", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("skill_category", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("source", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("extracted_at", "TIMESTAMP", mode="NULLABLE"),
-                ]
+            logger.info(f"✅ Loaded all {total_rows:,} rows to {table_id}")
+        else:
+            # Small dataset, load all at once
+            logger.info(f"📤 Loading {total_rows:,} rows to {table_id}...")
             
-            elif table_name == 'raw_resumes':
-                schema = [
-                    bigquery.SchemaField("resume_id", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("user_id", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("raw_text", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("file_name", "STRING", mode="NULLABLE"),
-                    bigquery.SchemaField("file_size", "INTEGER", mode="NULLABLE"),
-                    bigquery.SchemaField("uploaded_at", "TIMESTAMP", mode="NULLABLE"),
-                    bigquery.SchemaField("processing_status", "STRING", mode="NULLABLE"),
-                ]
-            
-            # Configure load job with explicit schema
             job_config = bigquery.LoadJobConfig(
-                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,  # Replace table
-                schema=schema,  # Use explicit schema
+                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+                schema=schema,
             )
             
-            # Load data
-            job = self.bq_client.load_table_from_dataframe(
-                df, table_id, job_config=job_config
-            )
-            
-            # Wait for job to complete
-            job.result()
-            
-            logger.info(f"✅ Loaded {len(df)} rows to {table_id}")
-            
-        except Exception as e:
-            logger.error(f"❌ Error loading to BigQuery: {e}")
-            raise
+            try:
+                job = self.bq_client.load_table_from_dataframe(
+                    df, table_id, job_config=job_config
+                )
+                job.result()
+                logger.info(f"✅ Loaded {total_rows:,} rows to {table_id}")
+            except Exception as e:
+                logger.error(f"❌ Error loading to BigQuery: {e}")
+                raise
     
     def run_full_etl(self):
         """Run complete ETL pipeline"""
@@ -471,11 +597,209 @@ class MongoDBToBigQueryETL:
         
         return stats
     
+    def extract_live_jobs_from_mongodb(self) -> pd.DataFrame:
+        """Extract live jobs from MongoDB (from live_jobs collection)"""
+        logger.info("📥 Extracting live jobs from MongoDB...")
+        
+        try:
+            # Check if live_jobs collection exists
+            if 'live_jobs' not in self.mongo_db.list_collection_names():
+                logger.info("ℹ️  No live_jobs collection found in MongoDB")
+                return pd.DataFrame()
+            
+            collection = self.mongo_db['live_jobs']
+            
+            # Get jobs from last 7 days
+            from datetime import timedelta
+            cutoff_date = datetime.now() - timedelta(days=7)
+            cursor = collection.find({
+                'ingested_at': {'$gte': cutoff_date},
+                'is_active': True
+            })
+            
+            jobs_data = []
+            for doc in cursor:
+                # Convert MongoDB document to flat structure
+                job_data = {
+                    'job_id': str(doc.get('_id', '')),
+                    'external_id': doc.get('source_id', ''),
+                    'source': doc.get('source', 'live_api'),
+                    'title': doc.get('title', ''),
+                    'company': doc.get('company', ''),
+                    'location': doc.get('location', ''),
+                    'description': doc.get('description', ''),
+                    'requirements': ', '.join(doc.get('skills', [])),  # Convert skills list to string
+                    'salary_min': doc.get('salary_min'),
+                    'salary_max': doc.get('salary_max'),
+                    'currency': doc.get('currency', 'INR'),
+                    'category': self._categorize_job_title(doc.get('title', '')),
+                    'posted_date': doc.get('posted_date'),
+                    'scraped_at': doc.get('ingested_at', datetime.now()),
+                    'url': doc.get('url', ''),
+                    'job_type': doc.get('job_type', 'full_time'),
+                    'experience_level': doc.get('experience_required', ''),
+                    'is_live': True  # Mark as live data
+                }
+                jobs_data.append(job_data)
+            
+            df = pd.DataFrame(jobs_data)
+            
+            if df.empty:
+                logger.info("ℹ️  No live jobs found")
+                return pd.DataFrame()
+            
+            # Ensure required columns exist and have proper types
+            required_columns = [
+                'job_id', 'external_id', 'source', 'title', 'company', 'location', 
+                'description', 'requirements', 'salary_min', 'salary_max', 
+                'currency', 'category', 'posted_date', 'scraped_at', 'url'
+            ]
+            
+            for col in required_columns:
+                if col not in df.columns:
+                    df[col] = None
+            
+            # Cast columns to proper types
+            df['job_id'] = df['job_id'].astype(str)
+            df['external_id'] = df['external_id'].fillna('').astype(str)
+            df['source'] = df['source'].fillna('live_api').astype(str)
+            df['title'] = df['title'].fillna('').astype(str)
+            df['company'] = df['company'].fillna('').astype(str)
+            df['location'] = df['location'].fillna('').astype(str)
+            df['description'] = df['description'].fillna('').astype(str)
+            df['requirements'] = df['requirements'].fillna('').astype(str)
+            df['currency'] = df['currency'].fillna('INR').astype(str)
+            df['category'] = df['category'].fillna('').astype(str)
+            df['url'] = df['url'].fillna('').astype(str)
+            
+            # Convert salary columns to float
+            df['salary_min'] = pd.to_numeric(df['salary_min'], errors='coerce')
+            df['salary_max'] = pd.to_numeric(df['salary_max'], errors='coerce')
+            
+            # Select only required columns
+            df = df[required_columns]
+            
+            logger.info(f"✅ Extracted {len(df)} live jobs from MongoDB")
+            return df
+            
+        except Exception as e:
+            logger.error(f"❌ Error extracting live jobs from MongoDB: {e}")
+            import traceback
+            traceback.print_exc()
+            return pd.DataFrame()
+    
+    def extract_live_skills_from_mongodb(self) -> pd.DataFrame:
+        """Extract live skills from MongoDB (from live_skills collection)"""
+        logger.info("📥 Extracting live skills from MongoDB...")
+        
+        try:
+            # Check if live_skills collection exists
+            if 'live_skills' not in self.mongo_db.list_collection_names():
+                logger.info("ℹ️  No live_skills collection found in MongoDB")
+                return pd.DataFrame()
+            
+            collection = self.mongo_db['live_skills']
+            
+            # Get recent skills data
+            from datetime import timedelta
+            cutoff_date = datetime.now() - timedelta(days=7)
+            cursor = collection.find({
+                'last_seen': {'$gte': cutoff_date}
+            })
+            
+            skills_data = []
+            for doc in cursor:
+                skill_data = {
+                    'skill_id': str(doc.get('_id', '')),
+                    'external_id': str(doc.get('_id', '')),  # Use MongoDB ID as external ID
+                    'skill_name': doc.get('skill_name', ''),
+                    'skill_category': self._categorize_skill(doc.get('skill_name', '')),
+                    'source': doc.get('source', 'live_jobs'),
+                    'extracted_at': doc.get('last_seen', datetime.now()),
+                    'demand_count': doc.get('demand_count', 0),
+                    'total_mentions': doc.get('total_mentions', 0),
+                    'is_trending': doc.get('is_trending', False),
+                    'is_live': True  # Mark as live data
+                }
+                skills_data.append(skill_data)
+            
+            df = pd.DataFrame(skills_data)
+            
+            if df.empty:
+                logger.info("ℹ️  No live skills found")
+                return pd.DataFrame()
+            
+            # Ensure required columns exist
+            required_columns = ['skill_id', 'external_id', 'skill_name', 'skill_category', 'source', 'extracted_at']
+            
+            for col in required_columns:
+                if col not in df.columns:
+                    df[col] = None
+            
+            # Cast columns to proper types
+            df['skill_id'] = df['skill_id'].astype(str)
+            df['external_id'] = df['external_id'].fillna('').astype(str)
+            df['skill_name'] = df['skill_name'].fillna('').astype(str)
+            df['skill_category'] = df['skill_category'].fillna('Other').astype(str)
+            df['source'] = df['source'].fillna('live_jobs').astype(str)
+            
+            # Select only required columns
+            df = df[required_columns]
+            
+            logger.info(f"✅ Extracted {len(df)} live skills from MongoDB")
+            return df
+            
+        except Exception as e:
+            logger.error(f"❌ Error extracting live skills from MongoDB: {e}")
+            import traceback
+            traceback.print_exc()
+            return pd.DataFrame()
+    
+    def _categorize_skill(self, skill_name: str) -> str:
+        """Categorize skill based on name"""
+        if not skill_name:
+            return 'Other'
+        
+        skill_lower = skill_name.lower()
+        
+        if any(lang in skill_lower for lang in ['python', 'java', 'javascript', 'c++', 'c#', 'go', 'rust']):
+            return 'Programming Language'
+        elif any(fw in skill_lower for fw in ['react', 'angular', 'vue', 'django', 'flask', 'spring']):
+            return 'Framework'
+        elif any(db in skill_lower for db in ['sql', 'mysql', 'postgresql', 'mongodb', 'redis']):
+            return 'Database'
+        elif any(cloud in skill_lower for cloud in ['aws', 'azure', 'gcp', 'docker', 'kubernetes']):
+            return 'Cloud/DevOps'
+        elif any(ml in skill_lower for ml in ['machine learning', 'data science', 'tensorflow', 'pytorch']):
+            return 'AI/ML'
+        else:
+            return 'Other'
+    
+    def _categorize_job_title(self, title: str) -> str:
+        """Categorize job based on title"""
+        if not title:
+            return 'Other'
+        
+        title_lower = title.lower()
+        
+        if any(term in title_lower for term in ['software engineer', 'developer', 'programmer']):
+            return 'Software Development'
+        elif any(term in title_lower for term in ['data scientist', 'data analyst', 'data engineer']):
+            return 'Data Science'
+        elif any(term in title_lower for term in ['product manager', 'project manager']):
+            return 'Management'
+        elif any(term in title_lower for term in ['designer', 'ui', 'ux']):
+            return 'Design'
+        elif any(term in title_lower for term in ['devops', 'sre', 'infrastructure']):
+            return 'DevOps'
+        else:
+            return 'Other'
+    
     def get_bigquery_stats(self) -> Dict:
         """Get statistics from BigQuery"""
         stats = {}
         
-        for table_name in ['raw_jobs', 'raw_skills', 'raw_resumes']:
+        for table_name in ['raw_jobs', 'raw_skills', 'raw_resumes', 'raw_jobs_live', 'raw_skills_live']:
             try:
                 table_id = f"{self.project_id}.{self.dataset_bronze}.{table_name}"
                 table = self.bq_client.get_table(table_id)
