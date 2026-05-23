@@ -9,6 +9,7 @@
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.py" },
+    { "source": "/health", "destination": "/api/index.py" },
     { "source": "/live-dashboard.html", "destination": "/web/live-dashboard.html" },
     { "source": "/live-dashboard.css", "destination": "/web/live-dashboard.css" },
     { "source": "/live-dashboard.js", "destination": "/web/live-dashboard.js" },
