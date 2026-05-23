@@ -2081,6 +2081,8 @@ async def get_user_history(guest_id: str):
             "count": len(resumes),
             "history": resumes
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2114,6 +2116,8 @@ async def get_history_record(record_id: str):
             "status": "success",
             "record": record
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -7,7 +7,7 @@ import re
 import logging
 from typing import Dict, List, Optional, Tuple
 import PyPDF2
-import pdfplumber
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -95,6 +95,7 @@ class PDFHyperlinkExtractor:
         
         # Method 2: Try pdfplumber for better text and hyperlink extraction
         try:
+            import pdfplumber
             logger.info("🔗 Extracting hyperlinks using pdfplumber...")
             
             with pdfplumber.open(io.BytesIO(pdf_content)) as pdf:
