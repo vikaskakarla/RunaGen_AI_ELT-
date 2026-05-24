@@ -2,9 +2,7 @@ version: '3.8'
 
 services:
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: runagen-app:latest
     container_name: runagen-api
     restart: unless-stopped
     expose:
@@ -19,9 +17,7 @@ services:
       - model_data:/app/models
 
   scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: runagen-app:latest
     container_name: runagen-scheduler
     restart: unless-stopped
     command: python run_live_pipeline.py --mode production --no-initial-run
