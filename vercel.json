@@ -1,15 +1,9 @@
 {
   "version": 2,
   "framework": null,
-  "functions": {
-    "api/index.py": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
-  },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.py" },
-    { "source": "/health", "destination": "/api/index.py" },
+    { "source": "/api/(.*)", "destination": "https://runagen-backend.onrender.com/api/$1" },
+    { "source": "/health", "destination": "https://runagen-backend.onrender.com/health" },
     { "source": "/live-dashboard.html", "destination": "/web/live-dashboard.html" },
     { "source": "/live-dashboard.css", "destination": "/web/live-dashboard.css" },
     { "source": "/live-dashboard.js", "destination": "/web/live-dashboard.js" },
@@ -17,11 +11,5 @@
     { "source": "/styles.css", "destination": "/web/styles.css" },
     { "source": "/index.html", "destination": "/web/index.html" },
     { "source": "/", "destination": "/web/index.html" }
-  ],
-  "crons": [
-    {
-      "path": "/api/live/cron/run-pipeline",
-      "schedule": "0 2 * * *"
-    }
   ]
 }
