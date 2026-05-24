@@ -22,6 +22,11 @@ let pageRendering = false;
 let pageNumPending = null;
 let scale = 1.5;
 
+// Chart Instances to prevent "Canvas is already in use" errors
+let careerRadarChartInstance = null;
+let skillGapChartInstance = null;
+let salaryRangeChartInstance = null;
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     checkAPIHealth();
@@ -692,7 +697,11 @@ function renderCharts(data) {
                 const roles = data.career_predictions.slice(0, 5).map(p => p.role);
                 const probs = data.career_predictions.slice(0, 5).map(p => p.probability * 100);
                 
-                new Chart(ctx, {
+                if (careerRadarChartInstance) {
+                    careerRadarChartInstance.destroy();
+                }
+                
+                careerRadarChartInstance = new Chart(ctx, {
                     type: 'radar',
                     data: {
                         labels: roles,
@@ -738,7 +747,11 @@ function renderCharts(data) {
                 const labels = data.skill_gaps.slice(0, 7).map(g => g.skill);
                 const scores = data.skill_gaps.slice(0, 7).map(g => (g.priority_score || 0) * 100);
 
-                new Chart(ctx, {
+                if (skillGapChartInstance) {
+                    skillGapChartInstance.destroy();
+                }
+
+                skillGapChartInstance = new Chart(ctx, {
                     type: 'bar',
                     data: {
                         labels: labels,
@@ -783,7 +796,11 @@ function renderCharts(data) {
                 const ctx = canvas.getContext('2d');
                 const sal = data.salary_prediction;
                 
-                new Chart(ctx, {
+                if (salaryRangeChartInstance) {
+                    salaryRangeChartInstance.destroy();
+                }
+
+                salaryRangeChartInstance = new Chart(ctx, {
                     type: 'doughnut',
                     data: {
                         labels: ['Min Market', 'Your Prediction', 'Max Market'],
