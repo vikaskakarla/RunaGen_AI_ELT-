@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout Code
@@ -24,7 +26,7 @@ jobs:
         run: |
           docker save runagen-app:latest | gzip > runagen-app.tar.gz
 
-      - name: Copy Configurations to EC2
+      - name: Copy Files to EC2
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -33,14 +35,81 @@ jobs:
           source: "docker-compose.yml,nginx.conf,web,runagen-app.tar.gz"
           target: "~/runagen-app"
 
-      - name: Execute Remote Deploy Commands via SSH
+      - name: Deploy on EC2
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -e
+            
+            echo "=========================================="
+            echo "Starting deployment..."
+            echo "=========================================="
+            
             cd ~/runagen-app
+            
+            # Load Docker image
+            echo "Loading Docker image..."
             gunzip -c runagen-app.tar.gz | docker load
             rm runagen-app.tar.gz
+            
+            # Stop existing containers
+            echo "Stopping existing containers..."
+            docker compose down || true
+            
+            # Remove old containers and images
+            echo "Cleaning up old containers..."
+            docker container prune -f || true
+            
+            # Start services
+            echo "Starting services..."
             docker compose up -d
+            
+            # Wait for services to start
+            echo "Waiting for services to start..."
+            sleep 10
+            
+            # Check container status
+            echo "=========================================="
+            echo "Container Status:"
+            docker compose ps
+            echo "=========================================="
+            
+            # Check if nginx is running
+            if docker compose ps | grep -q "runagen-nginx.*Up"; then
+              echo "✓ Nginx is running"
+            else
+              echo "✗ Nginx failed to start"
+              docker compose logs nginx
+              exit 1
+            fi
+            
+            # Check if API is running
+            if docker compose ps | grep -q "runagen-api.*Up"; then
+              echo "✓ API is running"
+            else
+              echo "✗ API failed to start"
+              docker compose logs api
+              exit 1
+            fi
+            
+            # Test health endpoint
+            echo "Testing health endpoint..."
+            sleep 5
+            if curl -f http://localhost/health; then
+              echo "✓ Health check passed"
+            else
+              echo "✗ Health check failed"
+              docker compose logs
+              exit 1
+            fi
+            
+            echo "=========================================="
+            echo "✓ Deployment completed successfully!"
+            echo "=========================================="
+            
+            # Show logs
+            echo "Recent logs:"
+            docker compose logs --tail=50

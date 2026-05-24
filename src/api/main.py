@@ -33,6 +33,26 @@ logger = logging.getLogger(__name__)
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+def bootstrap_gcp_credentials():
+    import os
+    import json
+    gcp_json = os.getenv('GCP_SERVICE_ACCOUNT_JSON')
+    if gcp_json:
+        try:
+            temp_path = "/tmp/bigquery-key.json"
+            if os.name == 'nt':
+                temp_path = os.path.join(os.environ.get('TEMP', 'C:\\Temp'), 'bigquery-key.json')
+            os.makedirs(os.path.dirname(temp_path), exist_ok=True)
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                f.write(gcp_json)
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_path
+            print(f"✓ GCP Credentials bootstrapped to {temp_path}")
+        except Exception as e:
+            print(f"⚠️ Failed to bootstrap GCP credentials: {e}")
+
+# Bootstrap credentials before importing other components
+bootstrap_gcp_credentials()
+
 import pandas as pd
 import numpy as np
 import joblib
