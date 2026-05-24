@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: runagen-api
+    restart: unless-stopped
+    expose:
+      - "8080"
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=cloud
+      - PYTHONPATH=/app/src
+      - AUTO_PIPELINE_ON_STARTUP=false # Let the dedicated scheduler container handle this
+    volumes:
+      - model_data:/app/models
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: runagen-scheduler
+    restart: unless-stopped
+    command: python run_live_pipeline.py --mode production --no-initial-run
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=cloud
+      - PYTHONPATH=/app/src
+    volumes:
+      - model_data:/app/models
+
+  nginx:
+    image: nginx:alpine
+    container_name: runagen-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  model_data:
